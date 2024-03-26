@@ -1,12 +1,17 @@
 ﻿using System.IO.Pipelines;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 
 
+
+var options = new JsonSerializerOptions();
+options.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All);
 
 var jsonLines = Enumerable.Range(0, 100000)
     .Select(x => new MyClass { MyProperty = x, MyProperty2 = "あいうえおかきくけこ" })
-    .Select(x => JsonSerializer.Serialize(x))
+    .Select(x => JsonSerializer.Serialize(x, options))
     .ToArray();
 
 var utf8Data = Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, jsonLines));

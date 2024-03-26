@@ -5,7 +5,9 @@ using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using System.Reflection;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 
 BenchmarkSwitcher.FromAssembly(Assembly.GetEntryAssembly()!).Run(args);
 
@@ -27,9 +29,12 @@ public class ReadLine
     [GlobalSetup]
     public void GlobalSetup()
     {
+        var options = new JsonSerializerOptions();
+        options.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All);
+
         var jsonLines = Enumerable.Range(0, 100000)
             .Select(x => new MyClass { MyProperty = x, MyProperty2 = "あいうえおかきくけこ" })
-            .Select(x => JsonSerializer.Serialize(x))
+            .Select(x => JsonSerializer.Serialize(x, options))
             .ToArray();
 
         utf8Data = Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, jsonLines));

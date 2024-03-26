@@ -156,7 +156,7 @@ public sealed class Utf8StreamReader : IDisposable
         // slide current buffer
         if (positionBegin != 0)
         {
-            inputBuffer.AsSpan(positionBegin..positionEnd).CopyTo(inputBuffer);
+            inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin).CopyTo(inputBuffer);
             positionEnd -= positionBegin;
             positionBegin = 0;
             examined = positionEnd;
@@ -191,13 +191,14 @@ public sealed class Utf8StreamReader : IDisposable
 
     bool TryReadLine(int examined, out ReadOnlyMemory<byte> line)
     {
-        var index = IndexOfNewline(inputBuffer.AsSpan(examined..positionEnd), out var newLineIndex);
+        // AsSpan(examined..positionEnd) is more readable but don't use range notation, it is slower.
+        var index = IndexOfNewline(inputBuffer.AsSpan(examined, positionEnd - examined), out var newLineIndex);
         if (index == -1)
         {
             if (endOfStream && positionBegin != positionEnd)
             {
                 // return last line
-                line = inputBuffer.AsMemory(positionBegin..positionEnd);
+                line = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
                 positionBegin = positionEnd;
                 return true;
             }
@@ -207,7 +208,7 @@ public sealed class Utf8StreamReader : IDisposable
         }
 
         // index and newLineIndex is based on examined so needs add
-        line = inputBuffer.AsMemory(positionBegin..(examined + index));
+        line = inputBuffer.AsMemory(positionBegin, examined + index - positionBegin);
         positionBegin = (examined + newLineIndex + 1);
         return true;
     }
