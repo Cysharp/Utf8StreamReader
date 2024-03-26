@@ -33,6 +33,7 @@ jobs:
     needs: [build-dotnet]
     uses: Cysharp/Actions/.github/workflows/create-release.yaml@main
     with:
+      commit-id: ''
       dry-run: ${{ inputs.dry-run }}
       tag: ${{ inputs.tag }}
       nuget-push: true
