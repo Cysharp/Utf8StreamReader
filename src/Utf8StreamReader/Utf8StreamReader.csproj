@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFrameworks>netstandard2.1;net6.0;net8.0</TargetFrameworks>
+		<LangVersion>12</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>Cysharp.IO</RootNamespace>
+
+
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NoWarn>1701;1702;1591;1573</NoWarn>
+
+		<!-- NuGet Packaging -->
+		<PackageTags>string</PackageTags>
+		<Description>Utf8 based StreamReader for high performance text processing.</Description>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="../../Icon.png" Pack="true" PackagePath="/" />
+		<EmbeddedResource Include="..\..\LICENSE" />
+	</ItemGroup>
+
+</Project>
