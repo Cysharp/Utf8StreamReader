@@ -4,6 +4,7 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <RootNamespace>Cysharp.IO</RootNamespace>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <NoWarn>9113</NoWarn>
@@ -32,6 +33,12 @@
         <Using Include="Xunit" />
         <Using Include="Xunit.Abstractions" />
         <Using Include="FluentAssertions" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="file1.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
 </Project>

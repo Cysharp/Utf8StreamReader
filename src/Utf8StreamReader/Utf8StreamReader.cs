@@ -6,14 +6,16 @@ namespace Cysharp.IO;
 
 public sealed class Utf8StreamReader : IDisposable
 {
+    // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
     const int DefaultBufferSize = 1024;
     const int DefaultFileStreamBufferSize = 4096;
     const int MinBufferSize = 128;
 
-    readonly Stream stream;
+    Stream stream;
     readonly bool leaveOpen;
+    readonly int bufferSize;
     bool endOfStream;
     bool checkPreamble = true;
     bool isDisposed;
@@ -22,6 +24,12 @@ public sealed class Utf8StreamReader : IDisposable
     int positionBegin;
     int positionEnd;
 
+    public bool SkipBom
+    {
+        init => checkPreamble = value;
+    }
+
+    public bool ConfigureAwait { get; init; } = false;
 
     public Utf8StreamReader(Stream stream)
         : this(stream, DefaultBufferSize, false)
@@ -42,6 +50,7 @@ public sealed class Utf8StreamReader : IDisposable
     {
         this.inputBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(bufferSize, MinBufferSize));
         this.stream = stream;
+        this.bufferSize = bufferSize;
         this.leaveOpen = leaveOpen;
     }
 
@@ -107,7 +116,7 @@ public sealed class Utf8StreamReader : IDisposable
         // not reaches full, repeatedly read
         if (positionEnd != inputBuffer.Length)
         {
-            var read = await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken);
+            var read = await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
             if (read == 0)
             {
                 endOfStream = true;
@@ -148,13 +157,13 @@ public sealed class Utf8StreamReader : IDisposable
         if (positionBegin != 0)
         {
             inputBuffer.AsSpan(positionBegin..positionEnd).CopyTo(inputBuffer);
-            positionBegin = 0;
             positionEnd -= positionBegin;
+            positionBegin = 0;
             examined = positionEnd;
             goto LOAD_INTO_BUFFER;
         }
 
-        // needs resize(positionBegin, positionEnd, examined are same)
+        // buffer is completely full, needs resize(positionBegin, positionEnd, examined are same)
         {
             var newBuffer = ArrayPool<byte>.Shared.Rent(GetNewSize(inputBuffer.Length));
             inputBuffer.AsSpan().CopyTo(newBuffer);
@@ -174,7 +183,7 @@ public sealed class Utf8StreamReader : IDisposable
     public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadLinesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ReadOnlyMemory<byte>? line;
-        while ((line = await ReadLineAsync(cancellationToken)) != null)
+        while ((line = await ReadLineAsync(cancellationToken).ConfigureAwait(ConfigureAwait)) != null)
         {
             yield return line.Value;
         }
@@ -224,17 +233,43 @@ public sealed class Utf8StreamReader : IDisposable
         return indexOfNewLine;
     }
 
+    // Reset API like Utf8JsonWriter
+
+    public void Reset()
+    {
+        ThrowIfDisposed();
+        ClearState();
+    }
+
+    public void Reset(Stream stream)
+    {
+        ThrowIfDisposed();
+        ClearState();
+
+        this.inputBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(bufferSize, MinBufferSize));
+        this.stream = stream;
+    }
+
     public void Dispose()
     {
         if (isDisposed) return;
 
         isDisposed = true;
-        ArrayPool<byte>.Shared.Return(inputBuffer);
-        inputBuffer = null!;
+        ClearState();
+    }
 
-        if (!leaveOpen)
+    void ClearState()
+    {
+        if (inputBuffer != null)
+        {
+            ArrayPool<byte>.Shared.Return(inputBuffer);
+            inputBuffer = null!;
+        }
+
+        if (!leaveOpen && stream != null)
         {
             stream.Dispose();
+            stream = null!;
         }
     }
 
