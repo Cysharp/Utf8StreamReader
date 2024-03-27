@@ -75,7 +75,6 @@ public class ReadLine
         string? line;
         while ((line = await sr.ReadLineAsync()) != null)
         {
-            // JsonSerializer.Deserialize<MyClass>(line);
             // Console.WriteLine(line);
         }
     }
@@ -100,20 +99,19 @@ public class ReadLine
         ReadOnlyMemory<byte>? line;
         while ((line = await sr.ReadLineAsync()) != null)
         {
-            // JsonSerializer.Deserialize<MyClass>(line.Value.Span);
             // Console.WriteLine(Encoding.UTF8.GetString(line.Value.Span));
         }
     }
 
-    //[Benchmark]
-    //public async Task Utf8StreamReaderReadLines()
-    //{
-    //    using var sr = new Cysharp.IO.Utf8StreamReader(ms);
-    //    await foreach (var line in sr.ReadLinesAsync())
-    //    {
-    //        //Console.WriteLine(Encoding.UTF8.GetString(line.Span));
-    //    }
-    //}
+    [Benchmark]
+    public async Task Utf8StreamReaderReadLines()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(ms);
+        await foreach (var line in sr.ReadLinesAsync())
+        {
+            //Console.WriteLine(Encoding.UTF8.GetString(line.Span));
+        }
+    }
 
     [Benchmark]
     public async Task PipelineStreamReader()
