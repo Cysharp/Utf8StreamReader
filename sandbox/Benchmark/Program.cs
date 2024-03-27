@@ -20,7 +20,7 @@ var benchmark = new ReadLine();
 benchmark.GlobalSetup();
 benchmark.Setup();
 
-await benchmark.PipelineStreamReader2();
+// await benchmark.PipelineStreamReader2();
 
 #else
 
