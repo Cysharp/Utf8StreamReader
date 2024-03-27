@@ -173,6 +173,13 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         }
 
         // requires load into buffer
+
+        if (positionEnd != 0 && positionBegin == positionEnd)
+        {
+            // can reset buffer position
+            positionBegin = positionEnd = 0;
+        }
+
         var examined = positionEnd; // avoid to duplicate scan
 
     LOAD_INTO_BUFFER:

@@ -262,17 +262,19 @@ baz boz too
         actual.Should().Equal(expected);
     }
 
+    // minbuffer = 1024
+
     [Fact]
-    public async Task SliceAndResize()
+    public async Task Resize()
     {
-        var bufferSize = 256;
+        var bufferSize = 1024;
 
         {
             var ms = new FakeMemoryStream();
 
             ms.AddMemory(
                 GetBytes("!!!\r\n"), // first line consume
-                GetBytes(new string('a', 245)),
+                GetBytes(new string('a', 1018)),
                 GetBytes("bcdefghijklmnopqrstuvwxyz\r\n"),
                 GetBytes("あいうえおかきくけこ\n"),
                 GetBytes("ABCDEFGHIJKLMN")
@@ -292,7 +294,7 @@ baz boz too
 
             ms.AddMemory(
                 GetBytes("!!!\r\n"), // first line consume
-                GetBytes(new string('a', 252)),
+                GetBytes(new string('a', 1018)),
                 GetBytes("bcdefghijklmnopqrstuvwxyz\r\n"),
                 GetBytes("あいうえおかきくけこ\n"),
                 GetBytes("ABCDEFGHIJKLMN")
@@ -312,14 +314,38 @@ baz boz too
     [Fact]
     public async Task OnlySlice()
     {
-        var bufferSize = 256;
+        var bufferSize = 1024;
 
         {
             var ms = new FakeMemoryStream();
 
             ms.AddMemory(
-                GetBytes(new string('a', 245)),
-                GetBytes("\r\n"),
+                GetBytes(new string('a', 1018) + "\r\nbcdefgh"),
+                GetBytes("あいうえおかきくけこ\n"),
+                GetBytes("ABCDEFGHIJKLMN")
+            );
+
+            var expected = await StreamReaderResultAsync(ms);
+
+            ms.Restart();
+
+            var actual = await Utf8StreamReaderResultAsync(ms, bufferSize);
+
+            actual[1].Should().Be(expected[1]);
+            actual.Should().Equal(expected);
+        }
+    }
+
+    [Fact]
+    public async Task HugeBuffer()
+    {
+        var bufferSize = 1024;
+
+        {
+            var ms = new FakeMemoryStream();
+
+            ms.AddMemory(
+                GetBytes(new string('a', 30000) + "\r\nb"),
                 GetBytes("あいうえおかきくけこ\n"),
                 GetBytes("ABCDEFGHIJKLMN")
             );
