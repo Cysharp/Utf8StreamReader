@@ -5,7 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Cysharp.IO;
+namespace Utf8StreamReaderTests;
 
 public class FileReadTest(ITestOutputHelper Console)
 {

@@ -18,15 +18,18 @@ public sealed class Utf8StreamReader : IDisposable
     readonly int bufferSize;
     bool endOfStream;
     bool checkPreamble = true;
+    bool skipBom = true;
     bool isDisposed;
 
     byte[] inputBuffer;
     int positionBegin;
     int positionEnd;
+    int lastNewLinePosition = -2; // -2 is not exists new line in buffer, -1 is not yet searched. absolute path from inputBuffer begin
+    int lastExaminedPosition;
 
     public bool SkipBom
     {
-        init => checkPreamble = value;
+        init => skipBom = checkPreamble = value;
     }
 
     public bool ConfigureAwait { get; init; } = false;
@@ -92,24 +95,83 @@ public sealed class Utf8StreamReader : IDisposable
 
     public Stream BaseStream => stream;
 
-#if !NETSTANDARD
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-#endif
-    public async ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
+    public bool TryReadLine(out ReadOnlyMemory<byte> line)
+    {
+        ThrowIfDisposed();
+
+        if (lastNewLinePosition >= 0)
+        {
+            line = inputBuffer.AsMemory(positionBegin, lastNewLinePosition - positionBegin);
+            positionBegin = lastExaminedPosition + 1;
+            lastNewLinePosition = lastExaminedPosition = -1;
+            return true;
+        }
+
+        // AsSpan(positionBegin..positionEnd) is more readable but don't use range notation, it is slower.
+        var index = IndexOfNewline(inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin), out var newLineIndex);
+        if (index == -1)
+        {
+            if (endOfStream && positionBegin != positionEnd)
+            {
+                // return last line
+                line = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+                positionBegin = positionEnd;
+                return true;
+            }
+
+            lastNewLinePosition = lastExaminedPosition = -2; // not exists new line in this bufer
+            line = default;
+            return false;
+        }
+
+        line = inputBuffer.AsMemory(positionBegin, index); // positionBegin..(positionBegin+index)
+        positionBegin = (positionBegin + newLineIndex + 1);
+        lastNewLinePosition = lastExaminedPosition = -1;
+        return true;
+    }
+
+    public async ValueTask<bool> LoadIntoBufferAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (positionEnd != 0 && TryReadLine(positionBegin, out var line)) // scan Begin to End.
-        {
-            return line;
-        }
+        // pre-check
 
         if (endOfStream)
         {
-            return null;
+            if (positionBegin != positionEnd) // not yet fully consumed
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (lastNewLinePosition >= 0) return true; // already filled line into buffer
+
+            // lastNewLineIndex, lastExamined is relative from positionBegin
+            if (lastNewLinePosition == -1)
+            {
+                var index = IndexOfNewline(inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin), out var examinedIndex);
+                if (index != -1)
+                {
+                    // convert to absoulte
+                    lastNewLinePosition = positionBegin + index;
+                    lastExaminedPosition = positionBegin + examinedIndex;
+                    return true;
+                }
+            }
+            else
+            {
+                // change status to not searched
+                lastNewLinePosition = -1;
+            }
         }
 
+        // requires load into buffer
         var examined = positionEnd; // avoid to duplicate scan
 
     LOAD_INTO_BUFFER:
@@ -117,22 +179,21 @@ public sealed class Utf8StreamReader : IDisposable
         if (positionEnd != inputBuffer.Length)
         {
             var read = await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+            positionEnd += read;
             if (read == 0)
             {
                 endOfStream = true;
-                if (TryReadLine(positionEnd, out line)) //  try to return last line
+                if (positionBegin != positionEnd) // has last line
                 {
-                    return line;
+                    return true;
                 }
                 else
                 {
-                    return null;
+                    return false;
                 }
             }
             else
             {
-                positionEnd += read;
-
                 // first Read, require to check UTF8 BOM
                 if (checkPreamble)
                 {
@@ -144,11 +205,16 @@ public sealed class Utf8StreamReader : IDisposable
                     checkPreamble = false;
                 }
 
-                if (TryReadLine(examined, out line)) // scan examined(already scanned) to End.
+                // scan examined(already scanned) to End.
+                var index = IndexOfNewline(inputBuffer.AsSpan(examined, positionEnd - examined), out var examinedIndex);
+                if (index != -1)
                 {
-                    return line;
+                    lastNewLinePosition = examined + index;
+                    lastExaminedPosition = examined + examinedIndex;
+                    return true;
                 }
-                examined += read;
+
+                examined = positionEnd;
                 goto LOAD_INTO_BUFFER;
             }
         }
@@ -173,46 +239,45 @@ public sealed class Utf8StreamReader : IDisposable
         }
     }
 
+    public ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
+    {
+        if (TryReadLine(out var line))
+        {
+            return new ValueTask<ReadOnlyMemory<byte>?>(line);
+        }
+
+        return Core(this, cancellationToken);
+
+        static async ValueTask<ReadOnlyMemory<byte>?> Core(Utf8StreamReader self, CancellationToken cancellationToken)
+        {
+            if (await self.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(self.ConfigureAwait))
+            {
+                if (self.TryReadLine(out var line))
+                {
+                    return line;
+                }
+            }
+            return null;
+        }
+    }
+
+    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadLinesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        while (await LoadIntoBufferAsync(cancellationToken).ConfigureAwait(ConfigureAwait))
+        {
+            while (TryReadLine(out var line))
+            {
+                yield return line;
+            }
+        }
+    }
+
     static int GetNewSize(int capacity)
     {
         int newCapacity = unchecked(capacity * 2);
         if ((uint)newCapacity > ArrayMaxLength) newCapacity = ArrayMaxLength;
         return newCapacity;
     }
-
-    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadLinesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        ReadOnlyMemory<byte>? line;
-        while ((line = await ReadLineAsync(cancellationToken).ConfigureAwait(ConfigureAwait)) != null)
-        {
-            yield return line.Value;
-        }
-    }
-
-    bool TryReadLine(int examined, out ReadOnlyMemory<byte> line)
-    {
-        // AsSpan(examined..positionEnd) is more readable but don't use range notation, it is slower.
-        var index = IndexOfNewline(inputBuffer.AsSpan(examined, positionEnd - examined), out var newLineIndex);
-        if (index == -1)
-        {
-            if (endOfStream && positionBegin != positionEnd)
-            {
-                // return last line
-                line = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
-                positionBegin = positionEnd;
-                return true;
-            }
-
-            line = default;
-            return false;
-        }
-
-        // index and newLineIndex is based on examined so needs add
-        line = inputBuffer.AsMemory(positionBegin, examined + index - positionBegin);
-        positionBegin = (examined + newLineIndex + 1);
-        return true;
-    }
-
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static int IndexOfNewline(ReadOnlySpan<byte> span, out int examined)
@@ -272,6 +337,11 @@ public sealed class Utf8StreamReader : IDisposable
             stream.Dispose();
             stream = null!;
         }
+
+        positionBegin = positionEnd = 0;
+        endOfStream = false;
+        checkPreamble = skipBom;
+        lastNewLinePosition = lastExaminedPosition = -2;
     }
 
     void ThrowIfDisposed()

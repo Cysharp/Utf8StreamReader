@@ -3,13 +3,32 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
+using System.Buffers;
+using System.IO.Pipelines;
 using System.Reflection;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
 
-BenchmarkSwitcher.FromAssembly(Assembly.GetEntryAssembly()!).Run(args);
+
+#if DEBUG
+
+global::System.Console.WriteLine("DEBUG");
+
+var benchmark = new ReadLine();
+benchmark.GlobalSetup();
+benchmark.Setup();
+
+await benchmark.PipelineStreamReader2();
+
+#else
+
+// BenchmarkSwitcher.FromAssembly(Assembly.GetEntryAssembly()!).Run(args);
+
+BenchmarkRunner.Run<ReadLine>(args: args);
+
+#endif
 
 file class BenchmarkConfig : ManualConfig
 {
@@ -23,6 +42,9 @@ file class BenchmarkConfig : ManualConfig
 [Config(typeof(BenchmarkConfig))]
 public class ReadLine
 {
+    const int C = 1000000;
+    // const int C = 100;
+
     byte[] utf8Data = default!;
     MemoryStream ms = default!;
 
@@ -32,7 +54,7 @@ public class ReadLine
         var options = new JsonSerializerOptions();
         options.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All);
 
-        var jsonLines = Enumerable.Range(0, 100000)
+        var jsonLines = Enumerable.Range(0, C)
             .Select(x => new MyClass { MyProperty = x, MyProperty2 = "あいうえおかきくけこ" })
             .Select(x => JsonSerializer.Serialize(x, options))
             .ToArray();
@@ -54,6 +76,7 @@ public class ReadLine
         while ((line = await sr.ReadLineAsync()) != null)
         {
             // JsonSerializer.Deserialize<MyClass>(line);
+            // Console.WriteLine(line);
         }
     }
 
@@ -61,12 +84,103 @@ public class ReadLine
     public async Task Utf8StreamReader()
     {
         using var sr = new Cysharp.IO.Utf8StreamReader(ms);
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                // Console.WriteLine(Encoding.UTF8.GetString( line.Span));
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8StreamReaderReadLine()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(ms);
         ReadOnlyMemory<byte>? line;
         while ((line = await sr.ReadLineAsync()) != null)
         {
             // JsonSerializer.Deserialize<MyClass>(line.Value.Span);
+            // Console.WriteLine(Encoding.UTF8.GetString(line.Value.Span));
         }
     }
+
+    //[Benchmark]
+    //public async Task Utf8StreamReaderReadLines()
+    //{
+    //    using var sr = new Cysharp.IO.Utf8StreamReader(ms);
+    //    await foreach (var line in sr.ReadLinesAsync())
+    //    {
+    //        //Console.WriteLine(Encoding.UTF8.GetString(line.Span));
+    //    }
+    //}
+
+    [Benchmark]
+    public async Task PipelineStreamReader()
+    {
+        using (ms)
+        {
+            var reader = PipeReader.Create(ms);
+
+        READ_AGAIN:
+            var readResult = await reader.ReadAsync();
+
+            if (!(readResult.IsCompleted | readResult.IsCanceled))
+            {
+                var buffer = readResult.Buffer;
+
+                while (TryReadData(ref buffer, out var line))
+                {
+                    //Console.WriteLine(Encoding.UTF8.GetString(line));
+                }
+
+                reader.AdvanceTo(buffer.Start, buffer.End);
+                goto READ_AGAIN;
+            }
+
+        }
+
+        static bool TryReadData(ref ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> line)
+        {
+            var reader = new SequenceReader<byte>(buffer);
+            if (reader.TryReadTo(out line, (byte)'\n', advancePastDelimiter: true))
+            {
+                buffer = buffer.Slice(reader.Consumed);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    //[Benchmark]
+    //public async Task PipelineStreamReader2()
+    //{
+    //    using (ms)
+    //    {
+    //        var reader = PipeReader.Create(ms);
+
+    //    READ_AGAIN:
+    //        var readResult = await reader.ReadAsync();
+
+    //        if (!(readResult.IsCompleted | readResult.IsCanceled))
+    //        {
+    //            var buffer = readResult.Buffer;
+    //            ConsumeAllData(ref buffer);
+    //            reader.AdvanceTo(buffer.Start, buffer.End);
+    //            goto READ_AGAIN;
+    //        }
+    //    }
+
+    //    static void ConsumeAllData(ref ReadOnlySequence<byte> buffer)
+    //    {
+    //        var reader = new SequenceReader<byte>(buffer);
+    //        while (reader.TryReadTo(out ReadOnlySequence<byte> line, (byte)'\n', advancePastDelimiter: true))
+    //        {
+    //            //Console.WriteLine(Encoding.UTF8.GetString(line));
+    //        }
+    //        buffer = buffer.Slice(reader.Consumed);
+    //    }
+    //}
 }
 
 
