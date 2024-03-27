@@ -26,7 +26,7 @@ public class FileReadTest(ITestOutputHelper Console)
     {
         using var reader = new Utf8StreamReader(path);
         var l = new List<string>();
-        await foreach (var item in reader.ReadLinesAsync())
+        await foreach (var item in reader.ReadAllLinesAsync())
         {
             l.Add(Encoding.UTF8.GetString(item.Span));
         }

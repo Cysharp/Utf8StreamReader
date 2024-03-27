@@ -4,14 +4,13 @@ using System.Text;
 
 namespace Cysharp.IO;
 
-public sealed class Utf8StreamReader : IDisposable
+public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 {
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    const int DefaultBufferSize = 1024;
-    const int DefaultFileStreamBufferSize = 4096;
-    const int MinBufferSize = 128;
+    const int DefaultBufferSize = 4096;
+    const int MinBufferSize = 1024;
 
     Stream stream;
     readonly bool leaveOpen;
@@ -69,7 +68,9 @@ public sealed class Utf8StreamReader : IDisposable
 
     static FileStream OpenPath(string path)
     {
-        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, DefaultFileStreamBufferSize, useAsync: true);
+        // useAsync:1 + bufferSize 1 chooses internal FileStreamStrategy to AsyncWindowsFileStreamStrategy(in windows)
+        // but bufferSize larger than 1, wrapped strategy with BufferedFileStreamStrategy, it is unnecessary in ReadLine.
+        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, useAsync: true);
     }
 
 #if !NETSTANDARD
@@ -261,7 +262,7 @@ public sealed class Utf8StreamReader : IDisposable
         }
     }
 
-    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadLinesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadAllLinesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         while (await LoadIntoBufferAsync(cancellationToken).ConfigureAwait(ConfigureAwait))
         {
@@ -321,6 +322,19 @@ public sealed class Utf8StreamReader : IDisposable
         if (isDisposed) return;
 
         isDisposed = true;
+        ClearState();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (isDisposed) return;
+
+        isDisposed = true;
+        if (!leaveOpen && stream != null)
+        {
+            await stream.DisposeAsync().ConfigureAwait(ConfigureAwait);
+            stream = null!;
+        }
         ClearState();
     }
 

@@ -339,7 +339,7 @@ baz boz too
     {
         var reader = (size == null) ? new Utf8StreamReader(ms) : new Utf8StreamReader(ms, size.Value);
         var l = new List<string>();
-        await foreach (var item in reader.ReadLinesAsync())
+        await foreach (var item in reader.ReadAllLinesAsync())
         {
             l.Add(GetString(item));
         }
