@@ -82,7 +82,7 @@ For a real-world usage example, refer to [StreamMessageReader.cs](https://github
 
 ## Buffer Lifetimes
 
-The `ReadOnlyMemory<byte>` returned from `ReadLineAsync` o`TryReadLine` or r `TryReadLine` is only valid until the next call to `LoadIntoBufferAsync` or `TryReadLine` or `ReadLineAsync`. Since the data is shared with the internal buffer, it may be overwritten, moved, or returned on the next call, so the safety of the data cannot be guaranteed. The received data must be promptly parsed and converted into a separate object. If you want to keep the data as is, use `ToArray()` to convert it to a `byte[]`.
+The `ReadOnlyMemory<byte>` returned from `ReadLineAsync` or `TryReadLine` is only valid until the next call to `LoadIntoBufferAsync` or `TryReadLine` or `ReadLineAsync`. Since the data is shared with the internal buffer, it may be overwritten, moved, or returned on the next call, so the safety of the data cannot be guaranteed. The received data must be promptly parsed and converted into a separate object. If you want to keep the data as is, use `ToArray()` to convert it to a `byte[]`.
 
 This design is similar to [System.IO.Pipelines](https://learn.microsoft.com/en-us/dotnet/standard/io/pipelines).
 
