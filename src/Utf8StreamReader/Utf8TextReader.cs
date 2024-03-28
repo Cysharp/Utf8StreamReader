@@ -91,6 +91,7 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
     {
         ThrowIfDisposed();
         ClearState();
+        reader.Reset();
     }
 
     public void Reset(Stream stream)
@@ -98,7 +99,8 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
         ThrowIfDisposed();
         ClearState();
 
-        this.outputBuffer = ArrayPool<char>.Shared.Rent(Math.Max(bufferSize, MinBufferSize));
+        outputBuffer = ArrayPool<char>.Shared.Rent(Math.Max(bufferSize, MinBufferSize));
+        reader.Reset(stream);
     }
 
     public void Dispose()
