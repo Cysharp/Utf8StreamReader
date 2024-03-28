@@ -131,6 +131,9 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         return true;
     }
 
+#if !NETSTANDARD
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
     public async ValueTask<bool> LoadIntoBufferAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
