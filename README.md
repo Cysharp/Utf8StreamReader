@@ -7,7 +7,6 @@ Utf8 based StreamReader for high performance text processing.
 
 Avoiding unnecessary string allocation is a fundamental aspect of recent .NET performance improvements. Given that most file and network data is in UTF8, features like [JsonSerializer](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer?view=net-8.0) and [IUtf8SpanParsable](https://learn.microsoft.com/en-us/dotnet/api/system.iutf8spanparsable-1?view=net-8.0), which operate on UTF8-based data, have been added. More recently, methods like [Split](https://learn.microsoft.com/en-us/dotnet/api/system.memoryextensions.split?view=net-8.0), which avoids allocations, have also been introduced.
 
-
 However, for the most common use case of parsing strings delimited by newlines, only the traditional [StreamReader](https://learn.microsoft.com/en-us/dotnet/api/system.io.streamreader) is provided, which generates a new String for each line, resulting in a large amount of allocations.
 
 ![image](https://github.com/Cysharp/Utf8StringInterpolation/assets/46207/ac8d2c7f-65fb-4dc1-b9f5-73219f036e58)
@@ -83,7 +82,7 @@ For a real-world usage example, refer to [StreamMessageReader.cs](https://github
 
 ## Buffer Lifetimes
 
-The `ReadOnlyMemory<byte>` returned from `ReadLineAsync` or `TryReadLine` is only valid until the next call to `LoadIntoBufferAsync` or `ReadLineAsync`. Since the data is shared with the internal buffer, it may be overwritten, moved, or returned on the next call, so the safety of the data cannot be guaranteed. The received data must be promptly parsed and converted into a separate object. If you want to keep the data as is, use `ToArray()` to convert it to a `byte[]`.
+The `ReadOnlyMemory<byte>` returned from `ReadLineAsync` o`TryReadLine` or r `TryReadLine` is only valid until the next call to `LoadIntoBufferAsync` or `TryReadLine` or `ReadLineAsync`. Since the data is shared with the internal buffer, it may be overwritten, moved, or returned on the next call, so the safety of the data cannot be guaranteed. The received data must be promptly parsed and converted into a separate object. If you want to keep the data as is, use `ToArray()` to convert it to a `byte[]`.
 
 This design is similar to [System.IO.Pipelines](https://learn.microsoft.com/en-us/dotnet/standard/io/pipelines).
 
@@ -108,7 +107,35 @@ Based on these observations of the internal behavior, `Utf8StreamReader` generat
 new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, useAsync: true)
 ```
 
+Furthermore, by devising how to call Stream as a whole, we have succeeded in making it function as a thin wrapper for [RandomAccess.ReadAsync](https://learn.microsoft.com/en-us/dotnet/api/system.io.randomaccess.readasync), which is the fastest way to call it.
+
 For overloads that accept `FileStreamOptions`, the above settings are not reflected, so please adjust them manually.
+
+## Read as `ReadOnlyMemory<char>`
+
+You can convert it to a `Utf8TextReader` that extracts `ReadOnlyMemory<char>` or `string`. Although there is a conversion cost, it is still fast and low allocation, so it can be used as an alternative to `StreamReader`.
+
+![image](https://github.com/Cysharp/Utf8StreamReader/assets/46207/d77af0fd-76af-46ce-8261-0863e4ab7109)
+
+After converting with `AsTextReader()`, all the same methods (`TryReadLine`, `ReadLineAsync`, `LoadIntoBufferAsync`, `ReadAllLinexAsync`) can be used.
+
+```csharp
+using var sr = new Cysharp.IO.Utf8StreamReader(ms).AsTextReader();
+while (await sr.LoadIntoBufferAsync())
+{
+    while (sr.TryReadLine(out var line))
+    {
+        // line is ReadOnlyMemory<char>, you can add to StringBuilder or other parsing method.
+
+        // If you neeed string, ReadOnlyMemory<char>.ToString() build string instance
+        // string str = line.ToString();
+    }
+}
+```
+
+You can perform text processing without allocation, such as splitting `ReadOnlySpan<char>` using [MemoryExtensions.Split](https://learn.microsoft.com/en-us/dotnet/api/system.memoryextensions.split?view=net-8.0#system-memoryextensions-split(system-readonlyspan((system-char))-system-span((system-range))-system-char-system-stringsplitoptions)), and concatenate the results using StringBuilder's [`Append/AppendLine(ReadOnlySpan<char>)`](https://learn.microsoft.com/en-us/dotnet/api/system.text.stringbuilder.append). This way, string-based processing can be done with much lower allocation compared to `StreamReader`.
+
+When a string is needed, you can convert `ReadOnlyMemory<char>` to a string using `ToString()`. Even with the added string conversion, the performance is higher than `StreamReader`, so it can be used as a better alternative.
 
 ## Reset
 

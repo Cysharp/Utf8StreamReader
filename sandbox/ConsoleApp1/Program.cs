@@ -1,5 +1,7 @@
-﻿using System.IO;
+﻿using Cysharp.IO;
+using System.IO;
 using System.IO.Pipelines;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -8,13 +10,15 @@ using System.Text.Unicode;
 
 var path = "file1.txt";
 
-using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, useAsync: true);
+using var reader = new Utf8StreamReader(path).AsTextReader();
 
-var memory = new byte[1024];
-var mem = memory.AsMemory();
-await fs.ReadAsync(mem);
 
-Console.WriteLine(fs);
+
+var str = await reader.ReadLineAsync();
+Console.WriteLine(str.Value.ToString());
+
+
+
 
 //var options = new JsonSerializerOptions();
 //options.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All);
@@ -49,3 +53,4 @@ Console.WriteLine(fs);
 //    public int MyProperty { get; set; }
 //    public string? MyProperty2 { get; set; }
 //}
+

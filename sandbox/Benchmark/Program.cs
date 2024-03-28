@@ -3,6 +3,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
+using Cysharp.IO;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Reflection;
@@ -87,6 +88,33 @@ public class ReadLine
         {
             while (sr.TryReadLine(out var line))
             {
+                // Console.WriteLine(Encoding.UTF8.GetString( line.Span));
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8TextReader()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(ms).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                // Console.WriteLine(Encoding.UTF8.GetString( line.Span));
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8TextReaderToString()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(ms).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                _ = line.ToString();
                 // Console.WriteLine(Encoding.UTF8.GetString( line.Span));
             }
         }

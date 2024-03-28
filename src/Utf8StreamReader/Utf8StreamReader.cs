@@ -159,7 +159,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 var index = IndexOfNewline(inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin), out var examinedIndex);
                 if (index != -1)
                 {
-                    // convert to absoulte
+                    // convert to absolute
                     lastNewLinePosition = positionBegin + index;
                     lastExaminedPosition = positionBegin + examinedIndex;
                     return true;
