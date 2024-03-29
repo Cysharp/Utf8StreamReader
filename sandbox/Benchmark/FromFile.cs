@@ -1,9 +1,8 @@
-using System.Text;
+﻿using BenchmarkDotNet.Attributes;
+using Cysharp.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
-using BenchmarkDotNet.Attributes;
-using Cysharp.IO;
 
 namespace Benchmark;
 
@@ -43,52 +42,90 @@ public class FromFile
     }
 
     [Benchmark]
-    public async Task StreamReader()
+    public async Task StreamReaderFileStream()
     {
-        using var fs = File.OpenRead(filePath);
-        using var sr = new System.IO.StreamReader(fs);
+        using var sr = new System.IO.StreamReader(filePath);
         string? line;
         while ((line = await sr.ReadLineAsync()) != null)
         {
-            // Console.WriteLine(line);
+            // ...
         }
     }
 
     [Benchmark]
-    public async Task Utf8StreamReader()
+    public async Task Utf8StreamReaderFileStreamScalability()
     {
-        using var sr = new Cysharp.IO.Utf8StreamReader(filePath);
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Scalability);
         while (await sr.LoadIntoBufferAsync())
         {
             while (sr.TryReadLine(out var line))
             {
-                // Console.WriteLine(Encoding.UTF8.GetString( line.Span));
+                // ...
             }
         }
     }
 
     [Benchmark]
-    public async Task Utf8TextReader()
+    public async Task Utf8StreamReaderFileStreamThroughput()
     {
-        using var sr = new Cysharp.IO.Utf8StreamReader(filePath).AsTextReader();
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput);
         while (await sr.LoadIntoBufferAsync())
         {
             while (sr.TryReadLine(out var line))
             {
-                // Console.WriteLine(line);
+                // ...
             }
         }
     }
 
     [Benchmark]
-    public async Task Utf8TextReaderToString()
+    public async Task Utf8TextReaderFileStreamScalability()
     {
-        using var sr = new Cysharp.IO.Utf8StreamReader(filePath).AsTextReader();
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Scalability).AsTextReader();
         while (await sr.LoadIntoBufferAsync())
         {
             while (sr.TryReadLine(out var line))
             {
-                // Console.WriteLine(line);
+                // ...
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8TextReaderFileStreamThroughput()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                // ...
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8TextReaderToStringFileStreamScalability()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Scalability).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                _ = line.ToString();
+            }
+        }
+    }
+
+    [Benchmark]
+    public async Task Utf8TextReaderToStringFileStreamThroughput()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                _ = line.ToString();
             }
         }
     }

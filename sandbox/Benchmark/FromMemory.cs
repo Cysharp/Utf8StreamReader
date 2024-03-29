@@ -1,5 +1,4 @@
-
-using System.Buffers;
+﻿using System.Buffers;
 using System.IO.Pipelines;
 using System.Text;
 using System.Text.Encodings.Web;

@@ -6,8 +6,8 @@ namespace Cysharp.IO;
 
 public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
 {
-    const int DefaultCharBufferSize = 4096;
-    const int MinBufferSize = 1024;
+    const int DefaultCharBufferSize = 1024; // buffer per line.
+    const int MinBufferSize = 128;
 
     readonly Utf8StreamReader reader;
     readonly int bufferSize;

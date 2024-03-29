@@ -4,12 +4,18 @@ using System.Text;
 
 namespace Cysharp.IO;
 
+public enum FileOpenMode
+{
+    Scalability,
+    Throughput
+}
+
 public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 {
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    const int DefaultBufferSize = 4096;
+    const int DefaultBufferSize = 65536;
     const int MinBufferSize = 1024;
 
     Stream stream;
@@ -56,21 +62,24 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         this.leaveOpen = leaveOpen;
     }
 
-    public Utf8StreamReader(string path)
-      : this(path, DefaultBufferSize)
+    public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+      : this(path, DefaultBufferSize, fileOpenMode)
     {
     }
 
-    public Utf8StreamReader(string path, int bufferSize)
-        : this(OpenPath(path), bufferSize, leaveOpen: false)
+    public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+        : this(OpenPath(path, fileOpenMode), bufferSize, leaveOpen: false)
     {
     }
 
-    static FileStream OpenPath(string path)
+    static FileStream OpenPath(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
     {
         // useAsync:1 + bufferSize 1 chooses internal FileStreamStrategy to AsyncWindowsFileStreamStrategy(in windows)
         // but bufferSize larger than 1, wrapped strategy with BufferedFileStreamStrategy, it is unnecessary in ReadLine.
-        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, useAsync: true);
+        var fileOptions = (fileOpenMode == FileOpenMode.Scalability)
+            ? (FileOptions.SequentialScan | FileOptions.Asynchronous)
+            : FileOptions.SequentialScan;
+        return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, options: fileOptions);
     }
 
 #if !NETSTANDARD

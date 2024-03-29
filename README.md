@@ -86,31 +86,6 @@ The `ReadOnlyMemory<byte>` returned from `ReadLineAsync` or `TryReadLine` is onl
 
 This design is similar to [System.IO.Pipelines](https://learn.microsoft.com/en-us/dotnet/standard/io/pipelines).
 
-## Optimizing FileStream
-
-Similar to `StreamReader`, `Utf8StreamReader` has the ability to open a `FileStream` by accepting a `string path`.
-
-```csharp
-public Utf8StreamReader(string path)
-public Utf8StreamReader(string path, int bufferSize)
-public Utf8StreamReader(string path, FileStreamOptions options)
-public Utf8StreamReader(string path, FileStreamOptions options, int bufferSize)
-```
-
-Unfortunately, the `FileStream` used by `StreamReader` is not optimized for modern .NET. For example, when using `FileStream` with asynchronous methods, it should be opened with `useAsync: true` for optimal performance. However, since `StreamReader` has both synchronous and asynchronous methods in its API, false is specified. Additionally, although `StreamReader` itself has a buffer and `FileStream` does not require a buffer, the buffer of `FileStream` is still being utilized.
-
-Strictly speaking, [FileStream underwent a major overhaul in .NET 6](https://github.com/dotnet/runtime/issues/40359). The behavior is controlled by an internal `FileStreamStrategy`. For instance, on Windows, `SyncWindowsFileStreamStrategy` is used when useAsync is false, and `AsyncWindowsFileStreamStrategy` is used when useAsync is true. Moreover, if bufferSize is set to 1, the `FileStreamStrategy` is used directly, and it writes directly to the buffer passed via `ReadAsync(Memory<byte>)`. If any other value is specified, it is wrapped in a `BufferedFileStreamStrategy`.
-
-Based on these observations of the internal behavior, `Utf8StreamReader` generates a `FileStream` with the following options:
-
-```csharp
-new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, useAsync: true)
-```
-
-Furthermore, by devising how to call Stream as a whole, we have succeeded in making it function as a thin wrapper for [RandomAccess.ReadAsync](https://learn.microsoft.com/en-us/dotnet/api/system.io.randomaccess.readasync), which is the fastest way to call it.
-
-For overloads that accept `FileStreamOptions`, the above settings are not reflected, so please adjust them manually.
-
 ## Read as `ReadOnlyMemory<char>`
 
 You can convert it to a `Utf8TextReader` that extracts `ReadOnlyMemory<char>` or `string`. Although there is a conversion cost, it is still fast and low allocation, so it can be used as an alternative to `StreamReader`.
@@ -137,6 +112,58 @@ You can perform text processing without allocation, such as splitting `ReadOnlyS
 
 When a string is needed, you can convert `ReadOnlyMemory<char>` to a string using `ToString()`. Even with the added string conversion, the performance is higher than `StreamReader`, so it can be used as a better alternative.
 
+## Optimizing FileStream
+
+Similar to `StreamReader`, `Utf8StreamReader` has the ability to open a `FileStream` by accepting a `string path`.
+
+```csharp
+public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+public Utf8StreamReader(string path, FileStreamOptions options)
+public Utf8StreamReader(string path, FileStreamOptions options, int bufferSize)
+```
+
+Unfortunately, the `FileStream` used by `StreamReader` is not optimized for modern .NET. For example, when using `FileStream` with asynchronous methods, it should be opened with `useAsync: true` for optimal performance. However, since `StreamReader` has both synchronous and asynchronous methods in its API, false is specified. Additionally, although `StreamReader` itself has a buffer and `FileStream` does not require a buffer, the buffer of `FileStream` is still being utilized.
+
+It is difficult to handle `FileStream` correctly with high performance. By specifying a `string path`, the stream is opened with options optimized for `Utf8StreamReader`, so it is recommended to use this overload rather than opening `FileStream` yourself. The following is a benchmark of `FileStream`.
+
+![image](https://github.com/Cysharp/Utf8StreamReader/assets/46207/83936827-2380-414a-9778-f53252689eb7)
+
+`Utf8StreamReader` opens `FileStream` with the following settings:
+
+```csharp
+var useAsync = (fileOpenMode == FileOpenMode.Scalability);
+new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, useAsync: useAsync)
+```
+
+Due to historical reasons, the options for `FileStream` are odd, but by setting `bufferSize` to 1, you can avoid the use of internal buffers. `FileStream` has been significantly revamped in .NET 6, and by controlling the setting of this option and the way `Utf8StreamReader` is called as a whole, it can function as a thin wrapper around the fast [RandomAccess.ReadAsync](https://learn.microsoft.com/en-us/dotnet/api/system.io.randomaccess.readasync), allowing you to avoid most of the overhead of FileStream.
+
+`FileOpenMode` is a proprietary option of `Utf8StreamReader`.
+
+
+```csharp
+public enum FileOpenMode
+{
+    Scalability,
+    Throughput
+}
+```
+
+In a Windows environment, the table in the [IO section of the Performance Improvements in .NET 6 blog](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-6/#io) shows that throughput decreases when `useAsync: true` is used.
+
+| Method | Runtime | IsAsync | BufferSize | Mean |
+| -      | -       | -       | -          | -    |
+| ReadAsync	| .NET 6.0 | True | 1 | 119.573 ms |
+| ReadAsync	| .NET 6.0 | False | 1 | 36.018 ms |
+
+By setting `Utf8StreamReader` to `FileOpenMode.Scalability`, true async I/O is enabled and scalability is prioritized. If set to `FileOpenMode.Throughput`, it internally becomes sync-over-async and consumes the ThreadPool, but reduces the overhead of asynchronous I/O and improves throughput.
+
+If frequently executed within a server application, setting it to `Scalability`, and for batch applications, setting it to `Throughput` will likely yield the best performance characteristics. The default is `Scalability`.
+
+In `Utf8StreamReader`, by carefully adjusting the buffer size on the `Utf8StreamReader` side, the performance difference is minimized. Please refer to the above benchmark results image for specific values.
+
+For overloads that accept `FileStreamOptions`, the above settings are not reflected, so please adjust them manually.
+
 ## Reset
 
 `Utf8StreamReader` is a class that supports reuse. By calling `Reset()`, the Stream and internal state are released. Using `Reset(Stream)`, it can be reused with a new `Stream`.
@@ -145,7 +172,7 @@ When a string is needed, you can convert `ReadOnlyMemory<char>` to a string usin
 
 The constructor accepts `int bufferSize` and `bool leaveOpen` as parameters.
 
-`int bufferSize` defaults to 4096, but if the data per line is large, changing the buffer size may improve performance. When the buffer size and the size per line are close, frequent buffer copy operations occur, leading to performance degradation.
+`int bufferSize` defaults to 65536 and the buffer is rented from `ArrayPool<byte>`. If the data per line is large, changing the buffer size may improve performance. When the buffer size and the size per line are close, frequent buffer copy operations occur, leading to performance degradation.
 
 `bool leaveOpen` determines whether the internal Stream is also disposed when the object is disposed. The default is `false`, which means the Stream is disposed.
 
