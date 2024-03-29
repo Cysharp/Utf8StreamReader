@@ -119,3 +119,6 @@ nuget/tools/*
 # publish directory
 out/
 *.tsbuildinfo
+
+# BenchmarkDotNet Artifacts
+BenchmarkDotNet.Artifacts/
