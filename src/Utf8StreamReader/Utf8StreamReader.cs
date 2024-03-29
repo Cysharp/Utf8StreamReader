@@ -62,20 +62,18 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         this.leaveOpen = leaveOpen;
     }
 
-    public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+    public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
       : this(path, DefaultBufferSize, fileOpenMode)
     {
     }
 
-    public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+    public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
         : this(OpenPath(path, fileOpenMode), bufferSize, leaveOpen: false)
     {
     }
 
-    static FileStream OpenPath(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+    static FileStream OpenPath(string path, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
     {
-        // useAsync:1 + bufferSize 1 chooses internal FileStreamStrategy to AsyncWindowsFileStreamStrategy(in windows)
-        // but bufferSize larger than 1, wrapped strategy with BufferedFileStreamStrategy, it is unnecessary in ReadLine.
         var fileOptions = (fileOpenMode == FileOpenMode.Scalability)
             ? (FileOptions.SequentialScan | FileOptions.Asynchronous)
             : FileOptions.SequentialScan;

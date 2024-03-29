@@ -117,8 +117,8 @@ When a string is needed, you can convert `ReadOnlyMemory<char>` to a string usin
 Similar to `StreamReader`, `Utf8StreamReader` has the ability to open a `FileStream` by accepting a `string path`.
 
 ```csharp
-public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
-public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Scalability)
+public Utf8StreamReader(string path, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
+public Utf8StreamReader(string path, int bufferSize, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
 public Utf8StreamReader(string path, FileStreamOptions options)
 public Utf8StreamReader(string path, FileStreamOptions options, int bufferSize)
 ```
@@ -158,7 +158,7 @@ In a Windows environment, the table in the [IO section of the Performance Improv
 
 By setting `Utf8StreamReader` to `FileOpenMode.Scalability`, true async I/O is enabled and scalability is prioritized. If set to `FileOpenMode.Throughput`, it internally becomes sync-over-async and consumes the ThreadPool, but reduces the overhead of asynchronous I/O and improves throughput.
 
-If frequently executed within a server application, setting it to `Scalability`, and for batch applications, setting it to `Throughput` will likely yield the best performance characteristics. The default is `Scalability`.
+If frequently executed within a server application, setting it to `Scalability`, and for batch applications, setting it to `Throughput` will likely yield the best performance characteristics. The default is `Throughput`.
 
 In `Utf8StreamReader`, by carefully adjusting the buffer size on the `Utf8StreamReader` side, the performance difference is minimized. Please refer to the above benchmark results image for specific values.
 
