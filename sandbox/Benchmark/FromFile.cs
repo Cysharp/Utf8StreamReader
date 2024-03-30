@@ -1,5 +1,6 @@
 ﻿using BenchmarkDotNet.Attributes;
 using Cysharp.IO;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -49,6 +50,14 @@ public class FromFile
         while ((line = await sr.ReadLineAsync()) != null)
         {
             // ...
+        }
+    }
+
+    [Benchmark]
+    public async Task File_ReadLinesAsync()
+    {
+        await foreach (var line in File.ReadLinesAsync(filePath, Encoding.UTF8))
+        {
         }
     }
 
