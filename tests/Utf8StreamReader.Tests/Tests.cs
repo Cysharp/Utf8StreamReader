@@ -361,6 +361,29 @@ baz boz too
         }
     }
 
+    [Fact]
+    public async Task NewLineTrimmedAtBufferBoundary()
+    {
+        // Buffer 1: aaa....\r\nasdf\r
+        // Buffer 2: \nasdf
+        var ms2 = CreateStringStream(
+            new string('a', 1017) +
+            "\r\nasdf" +
+            "\r\nasdf");
+
+        var actual = await Utf8StreamReaderResultAsync(ms2, 1024);
+
+        string[] expected =
+        [
+            new string('a', 1017),
+            "asdf",
+            "asdf",
+        ];
+
+        actual[1].Should().Be(expected[1]);
+        actual.Should().Equal(expected);
+    }
+
     static async Task<string[]> Utf8StreamReaderResultAsync(Stream ms, int? size = null)
     {
         var reader = (size == null) ? new Utf8StreamReader(ms) : new Utf8StreamReader(ms, size.Value);
