@@ -79,6 +79,18 @@ public class FromFile
     }
 
     [Benchmark]
+    public async ValueTask Utf8StreamReaderFileStreamThroughputSyncRead()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput) { SyncRead = true };
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+            }
+        }
+    }
+
+    [Benchmark]
     public async Task Utf8TextReaderFileStreamScalability()
     {
         using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Scalability).AsTextReader();
@@ -95,6 +107,19 @@ public class FromFile
     public async Task Utf8TextReaderFileStreamThroughput()
     {
         using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput).AsTextReader();
+        while (await sr.LoadIntoBufferAsync())
+        {
+            while (sr.TryReadLine(out var line))
+            {
+                // ...
+            }
+        }
+    }
+
+    [Benchmark]
+    public async ValueTask Utf8TextReaderFileStreamThroughputSyncRead()
+    {
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath, fileOpenMode: FileOpenMode.Throughput) { SyncRead = true }.AsTextReader();
         while (await sr.LoadIntoBufferAsync())
         {
             while (sr.TryReadLine(out var line))

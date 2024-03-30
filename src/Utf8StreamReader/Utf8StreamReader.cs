@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -34,10 +34,13 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     public bool SkipBom
     {
+        get => skipBom;
         init => skipBom = checkPreamble = value;
     }
 
     public bool ConfigureAwait { get; init; } = false;
+
+    public bool SyncRead { get; init; } = false;
 
     public Utf8StreamReader(Stream stream)
         : this(stream, DefaultBufferSize, false)
@@ -196,7 +199,10 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         // not reaches full, repeatedly read
         if (positionEnd != inputBuffer.Length)
         {
-            var read = await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+            var read = SyncRead
+                ? stream.Read(inputBuffer.AsSpan(positionEnd))
+                : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+
             positionEnd += read;
             if (read == 0)
             {
