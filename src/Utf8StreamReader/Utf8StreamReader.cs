@@ -127,7 +127,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 return true;
             }
 
-            lastNewLinePosition = lastExaminedPosition = -2; // not exists new line in this bufer
+            lastNewLinePosition = lastExaminedPosition = -2; // not exists new line in this buffer
             line = default;
             return false;
         }
@@ -224,11 +224,13 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 }
 
                 // scan examined(already scanned) to End.
-                var index = IndexOfNewline(inputBuffer.AsSpan(examined, positionEnd - examined), out var examinedIndex);
+                // Back one index to check if CRLF fell on buffer boundary
+                var scanFrom = examined > 0 ? examined - 1 : examined;
+                var index = IndexOfNewline(inputBuffer.AsSpan(scanFrom, positionEnd - scanFrom), out var examinedIndex);
                 if (index != -1)
                 {
-                    lastNewLinePosition = examined + index;
-                    lastExaminedPosition = examined + examinedIndex;
+                    lastNewLinePosition = scanFrom + index;
+                    lastExaminedPosition = scanFrom + examinedIndex;
                     return true;
                 }
 
