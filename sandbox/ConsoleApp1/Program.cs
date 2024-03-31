@@ -17,7 +17,7 @@ using var reader = new Utf8StreamReader(path).AsTextReader();
 var str = await reader.ReadLineAsync();
 Console.WriteLine(str.Value.ToString());
 
-
+// new StreamReader().ReadBlock(
 
 
 //var options = new JsonSerializerOptions();

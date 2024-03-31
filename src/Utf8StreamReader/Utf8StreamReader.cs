@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -296,6 +296,73 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 yield return line;
             }
         }
+    }
+
+#if !NETSTANDARD
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+    public async ValueTask<ReadOnlyMemory<byte>> ReadBlockAsync(int count, CancellationToken cancellationToken = default)
+    {
+        if (count < 0) throw new ArgumentOutOfRangeException($"invalid argument, count:{count}");
+        if (count == 0) return Array.Empty<byte>();
+
+        // reset newline posiion
+        lastNewLinePosition = -1;
+        if (positionEnd != 0 && positionBegin == positionEnd)
+        {
+            // can reset buffer position
+            positionBegin = positionEnd = 0;
+        }
+
+        // exists in loaded buffer
+        if (count < positionEnd - positionBegin)
+        {
+            var result = inputBuffer.AsMemory(positionBegin, count);
+            positionBegin += count;
+            return result;
+        }
+
+    // allocate require buffer size
+    PREPARE_BUFFER:
+        var remaining = count - positionEnd;
+        if (!(remaining < inputBuffer.Length - positionEnd))
+        {
+            // slide
+            if (positionBegin != 0)
+            {
+                inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin).CopyTo(inputBuffer);
+                positionEnd -= positionBegin;
+                positionBegin = 0;
+                goto PREPARE_BUFFER;
+            }
+
+            // resize
+            var newBuffer = ArrayPool<byte>.Shared.Rent(inputBuffer.Length + remaining); // TODO: logic???
+            inputBuffer.AsSpan().CopyTo(newBuffer);
+            ArrayPool<byte>.Shared.Return(inputBuffer);
+            inputBuffer = newBuffer;
+        }
+
+    // load loop
+    LOAD_BUFFER:
+        var read = SyncRead
+                ? stream.Read(inputBuffer.AsSpan(positionEnd))
+                : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+        positionEnd += read;
+        remaining -= read;
+        if (read == 0)
+        {
+            endOfStream = true;
+            throw new InvalidOperationException("Stream is completed but can not read count size.");
+        }
+        else if (remaining > 0)
+        {
+            goto LOAD_BUFFER; // load again
+        }
+
+        var readResult = inputBuffer.AsMemory(positionBegin, count);
+        positionBegin += count;
+        return readResult;
     }
 
     static int GetNewSize(int capacity)
