@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 
 namespace Cysharp.IO;
 
@@ -27,6 +28,7 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
     }
 
     public Stream BaseStream => reader.BaseStream;
+    public Utf8StreamReader BaseReader => reader;
 
     public ValueTask<bool> LoadIntoBufferAsync(CancellationToken cancellationToken = default)
     {
@@ -61,13 +63,16 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
             return new ValueTask<ReadOnlyMemory<char>?>(line);
         }
 
-        return Core(this, cancellationToken);
+        return Core(cancellationToken);
 
-        static async ValueTask<ReadOnlyMemory<char>?> Core(Utf8TextReader self, CancellationToken cancellationToken)
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<ReadOnlyMemory<char>?> Core(CancellationToken cancellationToken)
         {
-            if (await self.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(self.reader.ConfigureAwait))
+            if (await LoadIntoBufferAsync(cancellationToken).ConfigureAwait(reader.ConfigureAwait))
             {
-                if (self.TryReadLine(out var line))
+                if (TryReadLine(out var line))
                 {
                     return line;
                 }
@@ -86,6 +91,17 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    // TODO:
+    //public async ValueTask<string> ReadToEndAsync(CancellationToken cancellationToken = default)
+    //{
+    //    var decoder = Encoding.UTF8.GetDecoder();
+    //    var sb = new StringBuilder();
+    //    await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken))
+    //    {
+    //    }
+    //    return sb.ToString();
+    //}
 
     public void Reset()
     {

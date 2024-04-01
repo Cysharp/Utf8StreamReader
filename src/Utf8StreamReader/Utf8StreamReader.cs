@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -275,6 +276,10 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         {
             return;
         }
+        if (endOfStream)
+        {
+            throw new EndOfStreamException();
+        }
 
         if (positionEnd != 0 && positionBegin == positionEnd)
         {
@@ -294,26 +299,100 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             inputBuffer = newBuffer;
         }
 
-    READ_LOOP:
+    LOAD_INTO_BUFFER:
         var read = SyncRead
             ? stream.Read(inputBuffer.AsSpan(positionEnd))
             : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
         positionEnd += read;
-        remains -= read;
         if (read == 0)
         {
             throw new EndOfStreamException();
         }
         else
         {
+            // first Read, require to check UTF8 BOM
+            if (checkPreamble)
+            {
+                if (read < 2) goto LOAD_INTO_BUFFER;
+                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    positionBegin = 3;
+                    remains += 3; // read 3 bytes should not contains
+                }
+                checkPreamble = false;
+            }
+
+            remains -= read;
             if (remains < 0)
             {
                 return;
             }
 
-            goto READ_LOOP;
+            goto LOAD_INTO_BUFFER;
         }
     }
+
+    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadToEndChunksAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (endOfStream)
+        {
+            var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd;
+            yield return result;
+            yield break;
+        }
+
+        if (positionEnd != 0 && positionBegin != positionEnd)
+        {
+            yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+        }
+
+        positionBegin = positionEnd = 0;
+        lastNewLinePosition = -2;
+
+    LOAD_INTO_BUFFER:
+        var read = SyncRead
+            ? stream.Read(inputBuffer.AsSpan(positionEnd))
+            : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+
+        positionEnd += read;
+        if (read == 0)
+        {
+            endOfStream = true;
+            var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd;
+            yield return result;
+            yield break;
+        }
+        else
+        {
+            // first Read, require to check UTF8 BOM
+            if (checkPreamble)
+            {
+                if (read < 2) goto LOAD_INTO_BUFFER;
+                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    positionBegin = 3;
+                }
+                checkPreamble = false;
+                if (positionBegin == positionEnd)
+                {
+                    positionBegin = positionEnd = 0;
+                    goto LOAD_INTO_BUFFER;
+                }
+            }
+
+            yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd = 0;
+            goto LOAD_INTO_BUFFER;
+        }
+    }
+
+    //public async ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken)
+    //{
+    //    // TODO:
+    //    throw new NotImplementedException();
+    //}
 
     public ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
@@ -322,16 +401,16 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             return new ValueTask<ReadOnlyMemory<byte>?>(line);
         }
 
-        return Core(this, cancellationToken);
+        return Core(cancellationToken);
 
 #if !NETSTANDARD
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
 #endif
-        static async ValueTask<ReadOnlyMemory<byte>?> Core(Utf8StreamReader self, CancellationToken cancellationToken)
+        async ValueTask<ReadOnlyMemory<byte>?> Core(CancellationToken cancellationToken)
         {
-            if (await self.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(self.ConfigureAwait))
+            if (await LoadIntoBufferAsync(cancellationToken).ConfigureAwait(ConfigureAwait))
             {
-                if (self.TryReadLine(out var line))
+                if (TryReadLine(out var line))
                 {
                     return line;
                 }
