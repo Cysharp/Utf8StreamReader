@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -338,7 +337,10 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         {
             var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
             positionBegin = positionEnd;
-            yield return result;
+            if (result.Length != 0)
+            {
+                yield return result;
+            }
             yield break;
         }
 
@@ -361,38 +363,120 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             endOfStream = true;
             var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
             positionBegin = positionEnd;
-            yield return result;
+            if (result.Length != 0)
+            {
+                yield return result;
+            }
             yield break;
         }
         else
         {
-            // first Read, require to check UTF8 BOM
-            if (checkPreamble)
-            {
-                if (read < 2) goto LOAD_INTO_BUFFER;
-                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
-                {
-                    positionBegin = 3;
-                }
-                checkPreamble = false;
-                if (positionBegin == positionEnd)
-                {
-                    positionBegin = positionEnd = 0;
-                    goto LOAD_INTO_BUFFER;
-                }
-            }
-
+            // NOTE: ReadToEnd does not check, trim BOM.
             yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
             positionBegin = positionEnd = 0;
             goto LOAD_INTO_BUFFER;
         }
     }
 
-    //public async ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken)
-    //{
-    //    // TODO:
-    //    throw new NotImplementedException();
-    //}
+    public ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken = default)
+    {
+        return ReadToEndAsync(-1, cancellationToken);
+    }
+
+    public async ValueTask<byte[]> ReadToEndAsync(long resultSizeHint, CancellationToken cancellationToken = default)
+    {
+        if (endOfStream)
+        {
+            var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+            return (slice.Length != 0)
+                ? slice.ToArray()
+                : [];
+        }
+
+        if (resultSizeHint != -1)
+        {
+            if (resultSizeHint == 0)
+            {
+                return [];
+            }
+
+            var result = new byte[resultSizeHint];
+            var memory = result.AsMemory();
+
+            if (positionEnd != 0 && positionBegin != positionEnd)
+            {
+                var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+                slice.CopyTo(memory);
+                memory = memory.Slice(slice.Length);
+            }
+
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+
+            while (true)
+            {
+                var read = SyncRead
+                   ? stream.Read(memory.Span)
+                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+
+                if (read == 0)
+                {
+                    break;
+                }
+                else
+                {
+                    memory = memory.Slice(read);
+                }
+            }
+
+            return result;
+        }
+        else
+        {
+            using var writer = new SegmentedArrayBufferWriter<byte>();
+            var memory = writer.GetNextMemory();
+            var currentMemoryWritten = 0;
+
+            if (positionEnd != 0 && positionBegin != positionEnd)
+            {
+                var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+                writer.Write(ref memory, ref currentMemoryWritten, slice.Span);
+            }
+
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+
+            while (true)
+            {
+                var read = SyncRead
+                   ? stream.Read(memory.Span)
+                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+
+                if (read == 0)
+                {
+                    break;
+                }
+                else
+                {
+                    // NOTE: ReadToEnd does not check, trim BOM.
+                    memory = memory.Slice(read);
+                    currentMemoryWritten += read;
+                    if (memory.Length == 0)
+                    {
+                        memory = writer.GetNextMemory();
+                        currentMemoryWritten = 0;
+                    }
+                }
+            }
+
+            endOfStream = true;
+            return (currentMemoryWritten == 0)
+                ? []
+                : writer.ToArrayAndDispose(currentMemoryWritten);
+        }
+    }
 
     public ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
     {

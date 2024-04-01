@@ -54,7 +54,7 @@ public class FromFile
     }
 
     [Benchmark]
-    public async Task File_ReadLinesAsync()
+    public async Task FileReadLinesAsync()
     {
         await foreach (var line in File.ReadLinesAsync(filePath, Encoding.UTF8))
         {

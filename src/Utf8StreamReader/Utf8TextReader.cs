@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -92,16 +93,47 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
         }
     }
 
-    // TODO:
-    //public async ValueTask<string> ReadToEndAsync(CancellationToken cancellationToken = default)
-    //{
-    //    var decoder = Encoding.UTF8.GetDecoder();
-    //    var sb = new StringBuilder();
-    //    await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken))
-    //    {
-    //    }
-    //    return sb.ToString();
-    //}
+    public async ValueTask<string> ReadToEndAsync(CancellationToken cancellationToken = default)
+    {
+        using var writer = new SegmentedArrayBufferWriter<char>();
+        var memory = writer.GetNextMemory();
+        var writtenCurrentMemoryCount = 0;
+        var decoder = Encoding.UTF8.GetDecoder();
+
+        await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken))
+        {
+            var input = chunk;
+        CONVERT:
+            {
+                decoder.Convert(input.Span, memory.Span, flush: false, out var bytesUsed, out var charsUsed, out var completed);
+                input = input.Slice(bytesUsed);
+                memory = memory.Slice(charsUsed);
+                writtenCurrentMemoryCount += charsUsed;
+
+                if (memory.Length == 0)
+                {
+                    writtenCurrentMemoryCount = 0;
+                    memory = writer.GetNextMemory();
+                }
+
+                if (input.Length != 0)
+                {
+                    goto CONVERT;
+                }
+            }
+        }
+
+        var stringLength = writer.GetTotalCount(writtenCurrentMemoryCount);
+        return string.Create(stringLength, (writer, writtenCurrentMemoryCount), static (stringSpan, state) =>
+        {
+            var (writer, writtenCurrentMemoryCount) = state;
+            foreach (var item in writer.GetSegmentsAndDispose(writtenCurrentMemoryCount))
+            {
+                item.Span.CopyTo(stringSpan);
+                stringSpan = stringSpan.Slice(item.Length);
+            }
+        });
+    }
 
     public void Reset()
     {

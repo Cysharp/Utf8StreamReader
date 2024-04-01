@@ -1,6 +1,9 @@
 ﻿using Cysharp.IO;
+using Microsoft.Win32.SafeHandles;
+using System.Buffers;
 using System.IO;
 using System.IO.Pipelines;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -10,12 +13,26 @@ using System.Text.Unicode;
 
 var path = "file1.txt";
 
-using var reader = new Utf8StreamReader(path).AsTextReader();
+using var reader = new Utf8StreamReader(path); //.AsTextReader();
 
 
 
-var str = await reader.ReadLineAsync();
-Console.WriteLine(str.Value.ToString());
+using (SafeFileHandle sfh = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+{
+
+    
+    var fileLength = RandomAccess.GetLength(sfh);
+    
+}
+
+
+        File.ReadAllBytes(path);
+
+
+
+
+var str = await reader.ReadToEndAsync();
+//Console.WriteLine(str.ToString());
 
 // new StreamReader().ReadBlock(
 
