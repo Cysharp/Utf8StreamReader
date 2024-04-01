@@ -265,6 +265,56 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         }
     }
 
+#if !NETSTANDARD
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+#endif
+    public async ValueTask LoadIntoBufferAtLeastAsync(int minimumBytes, CancellationToken cancellationToken = default)
+    {
+        var loaded = positionEnd - positionBegin;
+        if (minimumBytes < loaded)
+        {
+            return;
+        }
+
+        if (positionEnd != 0 && positionBegin == positionEnd)
+        {
+            // can reset buffer position
+            loaded = positionBegin = positionEnd = 0;
+            lastNewLinePosition = -1;
+        }
+
+        var remains = minimumBytes - loaded;
+
+        if (inputBuffer.Length - positionEnd < remains)
+        {
+            // needs resize before load loop
+            var newBuffer = ArrayPool<byte>.Shared.Rent(Math.Min(GetNewSize(inputBuffer.Length), positionEnd + remains));
+            inputBuffer.AsSpan().CopyTo(newBuffer);
+            ArrayPool<byte>.Shared.Return(inputBuffer);
+            inputBuffer = newBuffer;
+        }
+
+    READ_LOOP:
+        var read = SyncRead
+            ? stream.Read(inputBuffer.AsSpan(positionEnd))
+            : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+        positionEnd += read;
+        remains -= read;
+        if (read == 0)
+        {
+            throw new EndOfStreamException();
+        }
+        else
+        {
+            if (remains < 0)
+            {
+                return;
+            }
+
+            goto READ_LOOP;
+        }
+    }
+
     public ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
         if (TryReadLine(out var line))
@@ -274,6 +324,9 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
         return Core(this, cancellationToken);
 
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
         static async ValueTask<ReadOnlyMemory<byte>?> Core(Utf8StreamReader self, CancellationToken cancellationToken)
         {
             if (await self.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(self.ConfigureAwait))
@@ -298,71 +351,113 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         }
     }
 
-#if !NETSTANDARD
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-#endif
-    public async ValueTask<ReadOnlyMemory<byte>> ReadBlockAsync(int count, CancellationToken cancellationToken = default)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryPeek(out byte data)
     {
-        if (count < 0) throw new ArgumentOutOfRangeException($"invalid argument, count:{count}");
-        if (count == 0) return Array.Empty<byte>();
+        ThrowIfDisposed();
 
-        // reset newline posiion
-        lastNewLinePosition = -1;
-        if (positionEnd != 0 && positionBegin == positionEnd)
+        if (positionEnd - positionBegin > 0)
         {
-            // can reset buffer position
-            positionBegin = positionEnd = 0;
+            data = inputBuffer[positionBegin];
+            return true;
         }
 
-        // exists in loaded buffer
-        if (count < positionEnd - positionBegin)
+        data = default;
+        return false;
+    }
+
+    public ValueTask<byte> PeekAsync(CancellationToken cancellationToken = default)
+    {
+        if (TryPeek(out var data))
         {
-            var result = inputBuffer.AsMemory(positionBegin, count);
+            return new ValueTask<byte>(data);
+        }
+
+        return Core(cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<byte> Core(CancellationToken cancellationToken)
+        {
+            await LoadIntoBufferAtLeastAsync(1, cancellationToken);
+            return inputBuffer[positionBegin];
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryRead(out byte data)
+    {
+        ThrowIfDisposed();
+
+        if (TryPeek(out data))
+        {
+            positionBegin += 1;
+            lastNewLinePosition = lastExaminedPosition = -1;
+            return true;
+        }
+
+        data = default;
+        return false;
+    }
+
+    public ValueTask<byte> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        if (TryRead(out var data))
+        {
+            return new ValueTask<byte>(data);
+        }
+
+        return Core(cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<byte> Core(CancellationToken cancellationToken)
+        {
+            await LoadIntoBufferAtLeastAsync(1, cancellationToken);
+            TryRead(out var data);
+            return data;
+        }
+    }
+
+    public bool TryReadBlock(int count, out ReadOnlyMemory<byte> block)
+    {
+        ThrowIfDisposed();
+
+        var loaded = positionEnd - positionBegin;
+        if (count < loaded)
+        {
+            block = inputBuffer.AsMemory(positionBegin, count);
             positionBegin += count;
-            return result;
+            lastNewLinePosition = lastExaminedPosition = -1;
+            return false;
         }
 
-    // allocate require buffer size
-    PREPARE_BUFFER:
-        var remaining = count - positionEnd;
-        if (!(remaining < inputBuffer.Length - positionEnd))
+        block = default;
+        return false;
+    }
+
+    public ValueTask<ReadOnlyMemory<byte>> ReadBlockAsync(int count, CancellationToken cancellationToken = default)
+    {
+        if (TryReadBlock(count, out var block))
         {
-            // slide
-            if (positionBegin != 0)
-            {
-                inputBuffer.AsSpan(positionBegin, positionEnd - positionBegin).CopyTo(inputBuffer);
-                positionEnd -= positionBegin;
-                positionBegin = 0;
-                goto PREPARE_BUFFER;
-            }
-
-            // resize
-            var newBuffer = ArrayPool<byte>.Shared.Rent(inputBuffer.Length + remaining); // TODO: logic???
-            inputBuffer.AsSpan().CopyTo(newBuffer);
-            ArrayPool<byte>.Shared.Return(inputBuffer);
-            inputBuffer = newBuffer;
+            return new ValueTask<ReadOnlyMemory<byte>>(block);
         }
 
-    // load loop
-    LOAD_BUFFER:
-        var read = SyncRead
-                ? stream.Read(inputBuffer.AsSpan(positionEnd))
-                : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
-        positionEnd += read;
-        remaining -= read;
-        if (read == 0)
+        return Core(count, cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<ReadOnlyMemory<byte>> Core(int count, CancellationToken cancellationToken)
         {
-            endOfStream = true;
-            throw new InvalidOperationException("Stream is completed but can not read count size.");
+            await LoadIntoBufferAtLeastAsync(count, cancellationToken);
+            TryReadBlock(count, out var block);
+            return block;
         }
-        else if (remaining > 0)
-        {
-            goto LOAD_BUFFER; // load again
-        }
-
-        var readResult = inputBuffer.AsMemory(positionBegin, count);
-        positionBegin += count;
-        return readResult;
     }
 
     static int GetNewSize(int capacity)

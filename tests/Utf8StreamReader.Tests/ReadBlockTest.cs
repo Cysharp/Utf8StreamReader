@@ -9,7 +9,7 @@ namespace Utf8StreamReaderTests;
 public class ReadBlockTest
 {
     [Fact]
-    public async Task Foo()
+    public async Task LineAndBlock()
     {
         var ms = new FakeMemoryStream();
 
@@ -33,9 +33,9 @@ public class ReadBlockTest
 
         ToString((await reader.ReadLineAsync()).Value).Should().Be("f");
 
-        ToString((await reader.ReadBlockAsync(8))).Should().Be("\r\nghij\nz");
+        ToString((await reader.ReadBlockAsync(8))).Should().Be("ghij\nzkl");
 
-        ToString((await reader.ReadLineAsync()).Value).Should().Be("klmno");
+        ToString((await reader.ReadLineAsync()).Value).Should().Be("mno");
 
 
     }
