@@ -380,6 +380,11 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     public ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken = default)
     {
+        if (BaseStream is FileStream fs && fs.CanSeek)
+        {
+            return ReadToEndAsync(fs.Length, cancellationToken);
+        }
+
         return ReadToEndAsync(-1, cancellationToken);
     }
 

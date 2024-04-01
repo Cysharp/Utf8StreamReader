@@ -51,15 +51,7 @@ public class BytesReadToEnd
     [Benchmark]
     public async Task<byte[]> Utf8StreamReaderReadToEndAsync()
     {
-        using var sr = new Cysharp.IO.Utf8StreamReader(filePath);
+        using var sr = new Cysharp.IO.Utf8StreamReader(filePath) { SyncRead = true };
         return await sr.ReadToEndAsync();
-    }
-
-    [Benchmark]
-    public async Task<byte[]> Utf8StreamReaderReadToEndAsyncSizeHint()
-    {
-        using var sr = new Cysharp.IO.Utf8StreamReader(filePath);
-        var length = RandomAccess.GetLength(((FileStream)sr.BaseStream).SafeFileHandle);
-        return await sr.ReadToEndAsync(length);
     }
 }
