@@ -96,8 +96,6 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
     public async ValueTask<string> ReadToEndAsync(CancellationToken cancellationToken = default)
     {
         using var writer = new SegmentedArrayBufferWriter<char>();
-        var memory = writer.GetNextMemory();
-        var writtenCurrentMemoryCount = 0;
         var decoder = Encoding.UTF8.GetDecoder();
 
         await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken))
@@ -105,17 +103,9 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
             var input = chunk;
         CONVERT:
             {
-                decoder.Convert(input.Span, memory.Span, flush: false, out var bytesUsed, out var charsUsed, out var completed);
+                decoder.Convert(input.Span, writer.GetMemory().Span, flush: false, out var bytesUsed, out var charsUsed, out var completed);
                 input = input.Slice(bytesUsed);
-                memory = memory.Slice(charsUsed);
-                writtenCurrentMemoryCount += charsUsed;
-
-                if (memory.Length == 0)
-                {
-                    writtenCurrentMemoryCount = 0;
-                    memory = writer.GetNextMemory();
-                }
-
+                writer.Advance(charsUsed);
                 if (input.Length != 0)
                 {
                     goto CONVERT;
@@ -123,11 +113,9 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
             }
         }
 
-        var stringLength = writer.GetTotalCount(writtenCurrentMemoryCount);
-        return string.Create(stringLength, (writer, writtenCurrentMemoryCount), static (stringSpan, state) =>
+        return string.Create(writer.WrittenCount, writer, static (stringSpan, writer) =>
         {
-            var (writer, writtenCurrentMemoryCount) = state;
-            foreach (var item in writer.GetSegmentsAndDispose(writtenCurrentMemoryCount))
+            foreach (var item in writer.GetSegmentsAndDispose())
             {
                 item.Span.CopyTo(stringSpan);
                 stringSpan = stringSpan.Slice(item.Length);

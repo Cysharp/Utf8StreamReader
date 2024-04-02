@@ -1,10 +1,12 @@
 ﻿#if DEBUG
 
 using Benchmark;
+using System.Runtime.CompilerServices;
 
 global::System.Console.WriteLine("DEBUG");
 
-var benchmark = new BytesReadToEnd();
+//var benchmark = new BytesReadToEnd();
+var benchmark = new StringBenchmark();
 benchmark.GlobalSetup();
 
 //var s1 = await benchmark.FileReadAllBytesAsync();

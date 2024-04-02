@@ -441,13 +441,10 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         else
         {
             using var writer = new SegmentedArrayBufferWriter<byte>();
-            var memory = writer.GetNextMemory();
-            var currentMemoryWritten = 0;
-
             if (positionEnd != 0 && positionBegin != positionEnd)
             {
                 var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
-                writer.Write(ref memory, ref currentMemoryWritten, slice.Span);
+                writer.Write(slice.Span);
             }
 
             positionBegin = positionEnd = 0;
@@ -456,8 +453,8 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             while (true)
             {
                 var read = SyncRead
-                   ? stream.Read(memory.Span)
-                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+                   ? stream.Read(writer.GetMemory().Span)
+                   : await stream.ReadAsync(writer.GetMemory(), cancellationToken).ConfigureAwait(ConfigureAwait);
 
                 if (read == 0)
                 {
@@ -466,20 +463,12 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 else
                 {
                     // NOTE: ReadToEnd does not check, trim BOM.
-                    memory = memory.Slice(read);
-                    currentMemoryWritten += read;
-                    if (memory.Length == 0)
-                    {
-                        memory = writer.GetNextMemory();
-                        currentMemoryWritten = 0;
-                    }
+                    writer.Advance(read);
                 }
             }
 
             endOfStream = true;
-            return (currentMemoryWritten == 0)
-                ? []
-                : writer.ToArrayAndDispose(currentMemoryWritten);
+            return writer.ToArrayAndDispose();
         }
     }
 

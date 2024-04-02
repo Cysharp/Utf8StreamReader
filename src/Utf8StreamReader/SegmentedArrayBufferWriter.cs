@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Security;
+using System.Runtime.InteropServices;
 
 namespace Cysharp.IO;
 
@@ -10,72 +11,79 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    const int SegmentSize = 27; // TODO: change size
-    const int InitialSize = 1024;
+    const int InitialSize = 1024; // TODO: change initial size
 
-    T[][] segments;
-    int currentSegmentIndex = -1;
+    InlineArray19<T> segments;    // TODO: InlineArray count
+    int currentSegmentIndex;
     int countInFinishedSegments;
+
+    T[] currentSegment;
+    int currentWritten;
+
     bool isDisposed = false;
+
+    public int WrittenCount => countInFinishedSegments + currentWritten;
 
     public SegmentedArrayBufferWriter()
     {
-        segments = new T[SegmentSize][];
+        currentSegment = segments[0] = ArrayPool<T>.Shared.Rent(InitialSize);
     }
 
-    public int GetTotalCount(int currentMemoryCount) => countInFinishedSegments + currentMemoryCount;
-
-    public Memory<T> GetNextMemory()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Memory<T> GetMemory() // no sizeHint
     {
-        int size;
-        if (currentSegmentIndex == -1)
+        return currentSegment.AsMemory(currentWritten);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Span<T> GetSpan()
+    {
+        return currentSegment.AsSpan(currentWritten);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Advance(int count)
+    {
+        currentWritten += count;
+        if (currentWritten == currentSegment.Length)
         {
-            size = InitialSize;
+            AllocateNextMemory();
         }
-        else
-        {
-            var finished = segments[currentSegmentIndex];
-            size = (int)Math.Min(finished.Length * 2L, ArrayMaxLength);
-            countInFinishedSegments += finished.Length;
-        }
+    }
+
+    void AllocateNextMemory()
+    {
+        countInFinishedSegments += currentSegment.Length;
+        var nextSize = (int)Math.Min(currentSegment.Length * 2L, ArrayMaxLength);
 
         currentSegmentIndex++;
-        var array = ArrayPool<T>.Shared.Rent(size);
-        segments[currentSegmentIndex] = array;
-        return array;
+        currentSegment = segments[currentSegmentIndex] = ArrayPool<T>.Shared.Rent(nextSize);
+        currentWritten = 0;
     }
 
-    public void Write(ref Memory<T> currentMemory, ref int currentMemoryWritten, ReadOnlySpan<T> source)
+    public void Write(ReadOnlySpan<T> source)
     {
         while (source.Length != 0)
         {
-            var copySize = Math.Min(source.Length, currentMemory.Length);
+            var destination = GetSpan();
+            var copySize = Math.Min(source.Length, destination.Length);
 
-            source.Slice(0, copySize).CopyTo(currentMemory.Span);
+            source.Slice(0, copySize).CopyTo(destination);
 
-            currentMemory = currentMemory.Slice(copySize);
-            currentMemoryWritten += copySize;
-            if (currentMemory.Length == 0)
-            {
-                currentMemory = GetNextMemory();
-                currentMemoryWritten = 0;
-            }
+            Advance(copySize);
             source = source.Slice(copySize);
         }
     }
 
-    public T[] ToArrayAndDispose(int lastMemoryCount)
+    public T[] ToArrayAndDispose()
     {
         if (isDisposed) throw new ObjectDisposedException("");
         isDisposed = true;
 
-        var size = countInFinishedSegments + lastMemoryCount;
+        var size = countInFinishedSegments + currentWritten;
         if (size == 0)
         {
-            if (currentSegmentIndex != -1)
-            {
-                ArrayPool<T>.Shared.Return(segments[0], clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
-            }
+            ArrayPool<T>.Shared.Return(currentSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
             return [];
         }
 
@@ -85,6 +93,8 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
         var result = new T[size];
 #endif
         var destination = result.AsSpan();
+
+        // without current
         for (int i = 0; i < currentSegmentIndex; i++)
         {
             var segment = segments[i];
@@ -93,26 +103,22 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
             ArrayPool<T>.Shared.Return(segment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
         }
 
-        // last array
-        var lastSegment = segments[currentSegmentIndex];
-        lastSegment.AsSpan(0, lastMemoryCount).CopyTo(destination);
-        ArrayPool<T>.Shared.Return(lastSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+        // write current
+        currentSegment.AsSpan(0, currentWritten).CopyTo(destination);
+        ArrayPool<T>.Shared.Return(currentSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 
+        currentSegment = null!;
+        segments = default!;
         return result;
     }
 
     // NOTE: create struct enumerator?
-    public IEnumerable<ReadOnlyMemory<T>> GetSegmentsAndDispose(int lastMemoryCount)
+    public IEnumerable<ReadOnlyMemory<T>> GetSegmentsAndDispose()
     {
         if (isDisposed) throw new ObjectDisposedException("");
         isDisposed = true;
 
-        if (currentSegmentIndex == -1)
-        {
-            yield return Array.Empty<T>();
-            yield break;
-        }
-
+        // without current
         for (int i = 0; i < currentSegmentIndex; i++)
         {
             var segment = segments[i];
@@ -120,10 +126,15 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
             ArrayPool<T>.Shared.Return(segment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
         }
 
-        // last array
-        var lastSegment = segments[currentSegmentIndex];
-        yield return lastSegment.AsMemory(0, lastMemoryCount);
-        ArrayPool<T>.Shared.Return(lastSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+        // current
+        if (currentWritten != 0)
+        {
+            yield return currentSegment.AsMemory(0, currentWritten);
+        }
+        ArrayPool<T>.Shared.Return(currentSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+
+        currentSegment = null!;
+        segments = default!;
     }
 
     public void Dispose()
@@ -135,5 +146,53 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
         {
             ArrayPool<T>.Shared.Return(segments[i], clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
         }
+
+        currentSegment = null!;
+        segments = default!;
+    }
+}
+
+[StructLayout(LayoutKind.Sequential)]
+struct InlineArray19<T>
+{
+    T[] array00;
+    T[] array01;
+    T[] array02;
+    T[] array03;
+    T[] array04;
+    T[] array05;
+    T[] array06;
+    T[] array07;
+    T[] array08;
+    T[] array09;
+    T[] array10;
+    T[] array11;
+    T[] array12;
+    T[] array13;
+    T[] array14;
+    T[] array15;
+    T[] array16;
+    T[] array17;
+    T[] array18;
+
+    public T[] this[int i]
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            if (i < 0 || i >= 19) Throw();
+            return Unsafe.Add(ref Unsafe.As<InlineArray19<T>, T[]>(ref Unsafe.AsRef(in this)), i);
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set
+        {
+            if (i < 0 || i >= 19) Throw();
+            Unsafe.Add(ref Unsafe.As<InlineArray19<T>, T[]>(ref Unsafe.AsRef(in this)), i) = value;
+        }
+    }
+
+    void Throw()
+    {
+        throw new ArgumentOutOfRangeException();
     }
 }
