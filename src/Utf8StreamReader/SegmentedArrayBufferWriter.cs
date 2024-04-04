@@ -171,7 +171,7 @@ struct InlineArray18<T>
     T[] array14; // 134217728
     T[] array15; // 268435456
     T[] array16; // 536870912
-    T[] array17; // 1073741824 (Total = 2147418112), overflow
+    T[] array17; // 1073741824 (Total will be overflow)
 
     public T[] this[int i]
     {
