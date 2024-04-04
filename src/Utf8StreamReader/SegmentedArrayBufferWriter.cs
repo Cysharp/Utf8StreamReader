@@ -10,9 +10,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    const int InitialSize = 65536;
-
-    InlineArray14<T> segments;
+    InlineArray18<T> segments;
     int currentSegmentIndex;
     int countInFinishedSegments;
 
@@ -25,7 +23,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
 
     public SegmentedArrayBufferWriter()
     {
-        currentSegment = segments[0] = ArrayPool<T>.Shared.Rent(InitialSize);
+        currentSegment = segments[0] = ArrayPool<T>.Shared.Rent(InlineArray18<T>.InitialSize);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -152,36 +150,41 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
 }
 
 [StructLayout(LayoutKind.Sequential)]
-struct InlineArray14<T>
+struct InlineArray18<T>
 {
-    T[] array00; // 65536
-    T[] array01; // 131072
-    T[] array02; // 262144
-    T[] array03; // 524288
-    T[] array04; // 1048576
-    T[] array05; // 2097152
-    T[] array06; // 4194304
-    T[] array07; // 8388608
-    T[] array08; // 16777216
-    T[] array09; // 33554432
-    T[] array10; // 67108864
-    T[] array11; // 134217728
-    T[] array12; // 268435456
-    T[] array13; // 536870912
-    T[] array14; // 1073741824 (Total = 2147418112), overflow
+    public const int InitialSize = 8192;
+
+    T[] array00; // 8192
+    T[] array01; // 16384
+    T[] array02; // 32768
+    T[] array03; // 65536
+    T[] array04; // 131072
+    T[] array05; // 262144
+    T[] array06; // 524288
+    T[] array07; // 1048576
+    T[] array08; // 2097152
+    T[] array09; // 4194304
+    T[] array10; // 8388608
+    T[] array11; // 16777216
+    T[] array12; // 33554432
+    T[] array13; // 67108864
+    T[] array14; // 134217728
+    T[] array15; // 268435456
+    T[] array16; // 536870912
+    T[] array17; // 1073741824 (Total = 2147418112), overflow
 
     public T[] this[int i]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
-            if (i < 0 || i > 14) Throw();
+            if (i < 0 || i > 17) Throw();
             return Unsafe.Add(ref array00, i);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         set
         {
-            if (i < 0 || i > 14) Throw();
+            if (i < 0 || i > 17) Throw();
             Unsafe.Add(ref array00, i) = value;
         }
     }

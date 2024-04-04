@@ -14,12 +14,12 @@ using System.Text.Unicode;
 
 
 
-//var path = "file1.txt";
+var path = "file1.txt";
 
 
-////var fs = new FileStream(path, FileMode.Open,FileAccess.Read, FileShare.Read, 0, false);
-////var buf = new byte[1024];
-////await fs.ReadAsync(buf);
+var fs = new FileStream(path, FileMode.Open,FileAccess.Read, FileShare.Read, 0, false);
+var buf = new byte[1024];
+await fs.ReadAsync(buf);
 
 //using var reader = new Utf8StreamReader(path).AsTextReader();
 
