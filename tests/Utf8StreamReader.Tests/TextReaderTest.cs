@@ -13,6 +13,7 @@ public class TextReaderTest
     {
         var ms = new FakeMemoryStream();
         ms.AddMemory(
+                Encoding.UTF8.GetPreamble(),
                 GetBytes(new string('a', 30000) + "\r\nb"),
                 GetBytes("あいうえおかきくけこ\n"),
                 GetBytes("ABCDEFGHIJKLMN")
@@ -25,6 +26,55 @@ public class TextReaderTest
         var actual = await Utf8TextReaderResultAsync(ms);
 
         actual.Should().Equal(expected);
+    }
+
+    [Fact]
+    public async Task ReadToEnd()
+    {
+        var ms = new FakeMemoryStream();
+        ms.AddMemory(
+                Encoding.UTF8.GetPreamble(),
+                GetBytes(new string('a', 30000) + "\r\nb"),
+                GetBytes("あいうえおかきくけこ\n"),
+                GetBytes("ABCDEFGHIJKLMN")
+        );
+
+        using var sr = new StreamReader(ms, leaveOpen: true);
+        var expected = await sr.ReadToEndAsync();
+
+        ms.Restart();
+
+        using var usr = new Utf8StreamReader(ms).AsTextReader();
+        var actual = await usr.ReadToEndAsync();
+
+        actual.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task ReadToEndLeftOver()
+    {
+        var ms = new FakeMemoryStream();
+
+        var hiragana = Encoding.UTF8.GetBytes("あ"); // 3 byte
+
+        ms.AddMemory(
+                Encoding.UTF8.GetPreamble(),
+                new byte[] { hiragana[0] },
+                new byte[] { hiragana[1] },
+                new byte[] { hiragana[2] },
+                GetBytes("あいうえおかきくけこ\n"),
+                GetBytes("ABCDEFGHIJKLMN")
+        );
+
+        using var sr = new StreamReader(ms, leaveOpen: true);
+        var expected = await sr.ReadToEndAsync();
+
+        ms.Restart();
+
+        using var usr = new Utf8StreamReader(ms).AsTextReader();
+        var actual = await usr.ReadToEndAsync();
+
+        actual.Should().Be(expected);
     }
 
     static async Task<string[]> Utf8TextReaderResultAsync(Stream ms)

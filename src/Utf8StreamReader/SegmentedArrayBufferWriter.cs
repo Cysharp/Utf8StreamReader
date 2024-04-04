@@ -10,7 +10,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    InlineArray18<T> segments;
+    InlineArray19<T> segments;
     int currentSegmentIndex;
     int countInFinishedSegments;
 
@@ -23,7 +23,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
 
     public SegmentedArrayBufferWriter()
     {
-        currentSegment = segments[0] = ArrayPool<T>.Shared.Rent(InlineArray18<T>.InitialSize);
+        currentSegment = segments[0] = ArrayPool<T>.Shared.Rent(InlineArray19<T>.InitialSize);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -41,7 +41,10 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Advance(int count)
     {
-        currentWritten += count;
+        checked
+        {
+            currentWritten += count;
+        };
         if (currentWritten == currentSegment.Length)
         {
             AllocateNextMemory();
@@ -51,10 +54,14 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     void AllocateNextMemory()
     {
         countInFinishedSegments += currentSegment.Length;
-        var nextSize = (int)Math.Min(currentSegment.Length * 2L, ArrayMaxLength);
+        var nextSize = currentSegment.Length * 2L;
+        if (nextSize + countInFinishedSegments > ArrayMaxLength)
+        {
+            nextSize = ArrayMaxLength - countInFinishedSegments;
+        }
 
         currentSegmentIndex++;
-        currentSegment = segments[currentSegmentIndex] = ArrayPool<T>.Shared.Rent(nextSize);
+        currentSegment = segments[currentSegmentIndex] = ArrayPool<T>.Shared.Rent((int)nextSize);
         currentWritten = 0;
     }
 
@@ -150,7 +157,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
 }
 
 [StructLayout(LayoutKind.Sequential)]
-struct InlineArray18<T>
+struct InlineArray19<T>
 {
     public const int InitialSize = 8192;
 
@@ -171,20 +178,21 @@ struct InlineArray18<T>
     T[] array14; // 134217728
     T[] array15; // 268435456
     T[] array16; // 536870912
-    T[] array17; // 1073741824 (Total will be overflow)
+    T[] array17; // 1073741824
+    T[] array18; // Array.MaxLength - total
 
     public T[] this[int i]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
-            if (i < 0 || i > 17) Throw();
+            if (i < 0 || i > 18) Throw();
             return Unsafe.Add(ref array00, i);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         set
         {
-            if (i < 0 || i > 17) Throw();
+            if (i < 0 || i > 18) Throw();
             Unsafe.Add(ref array00, i) = value;
         }
     }

@@ -371,7 +371,21 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         }
         else
         {
-            // NOTE: ReadToEnd does not check, trim BOM.
+            // first Read, require to check UTF8 BOM
+            if (checkPreamble)
+            {
+                if (read < 2) goto LOAD_INTO_BUFFER;
+                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    positionBegin = 3;
+                }
+                checkPreamble = false;
+                if (positionEnd - positionBegin == 0)
+                {
+                    goto LOAD_INTO_BUFFER;
+                }
+            }
+
             yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
             positionBegin = positionEnd = 0;
             goto LOAD_INTO_BUFFER;

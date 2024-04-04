@@ -1,8 +1,6 @@
 ﻿using System.Buffers;
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading;
 
 namespace Cysharp.IO;
 
@@ -98,18 +96,14 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
         using var writer = new SegmentedArrayBufferWriter<char>();
         var decoder = Encoding.UTF8.GetDecoder();
 
-        await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken))
+        await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken).ConfigureAwait(reader.ConfigureAwait))
         {
             var input = chunk;
-        CONVERT:
+            while (input.Length != 0)
             {
                 decoder.Convert(input.Span, writer.GetMemory().Span, flush: false, out var bytesUsed, out var charsUsed, out var completed);
                 input = input.Slice(bytesUsed);
                 writer.Advance(charsUsed);
-                if (input.Length != 0)
-                {
-                    goto CONVERT;
-                }
             }
         }
 
