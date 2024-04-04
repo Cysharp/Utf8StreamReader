@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -11,9 +10,9 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
     // NetStandard2.1 does not have Array.MaxLength so use constant.
     const int ArrayMaxLength = 0X7FFFFFC7;
 
-    const int InitialSize = 1024; // TODO: change initial size
+    const int InitialSize = 65536;
 
-    InlineArray19<T> segments;    // TODO: InlineArray count
+    InlineArray14<T> segments;
     int currentSegmentIndex;
     int countInFinishedSegments;
 
@@ -80,7 +79,7 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
         if (isDisposed) throw new ObjectDisposedException("");
         isDisposed = true;
 
-        var size = countInFinishedSegments + currentWritten;
+        var size = checked(countInFinishedSegments + currentWritten);
         if (size == 0)
         {
             ArrayPool<T>.Shared.Return(currentSegment, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
@@ -153,41 +152,37 @@ internal sealed class SegmentedArrayBufferWriter<T> : IDisposable
 }
 
 [StructLayout(LayoutKind.Sequential)]
-struct InlineArray19<T>
+struct InlineArray14<T>
 {
-    T[] array00;
-    T[] array01;
-    T[] array02;
-    T[] array03;
-    T[] array04;
-    T[] array05;
-    T[] array06;
-    T[] array07;
-    T[] array08;
-    T[] array09;
-    T[] array10;
-    T[] array11;
-    T[] array12;
-    T[] array13;
-    T[] array14;
-    T[] array15;
-    T[] array16;
-    T[] array17;
-    T[] array18;
+    T[] array00; // 65536
+    T[] array01; // 131072
+    T[] array02; // 262144
+    T[] array03; // 524288
+    T[] array04; // 1048576
+    T[] array05; // 2097152
+    T[] array06; // 4194304
+    T[] array07; // 8388608
+    T[] array08; // 16777216
+    T[] array09; // 33554432
+    T[] array10; // 67108864
+    T[] array11; // 134217728
+    T[] array12; // 268435456
+    T[] array13; // 536870912
+    T[] array14; // 1073741824 (Total = 2147418112), overflow
 
     public T[] this[int i]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
-            if (i < 0 || i >= 19) Throw();
-            return Unsafe.Add(ref Unsafe.As<InlineArray19<T>, T[]>(ref Unsafe.AsRef(in this)), i);
+            if (i < 0 || i > 14) Throw();
+            return Unsafe.Add(ref array00, i);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         set
         {
-            if (i < 0 || i >= 19) Throw();
-            Unsafe.Add(ref Unsafe.As<InlineArray19<T>, T[]>(ref Unsafe.AsRef(in this)), i) = value;
+            if (i < 0 || i > 14) Throw();
+            Unsafe.Add(ref array00, i) = value;
         }
     }
 
