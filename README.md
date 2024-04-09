@@ -351,6 +351,30 @@ If `disableBomCheck` is true, it disables the BOM check/trim and always performs
 
 `resultSizeHint` allows for reducing the copy cost by directly generating `new byte[resultSizeHint]` when the final binary size is known and reading directly into that buffer. When reading a file, i.e., when the `Stream` is a `FileStream` and seekable, `FileStream.Length` is used as the resultSizeHint as an optimization.
 
+Here is the peformance comparison between copying a normal `Stream` to a `MemoryStream` by `CopyToAsync` and using `ToArray`, and using `ReadToEndAsync` of `Utf8StreamReader` when converting to `byte[]`. The options are adjusted so that optimization does not occur when directly passing FileStream to Utf8StreamReader, in order to intentionally avoid optimization.
+
+![image](https://github.com/Cysharp/Utf8StreamReader/assets/46207/5d8fc9a3-8455-43de-ab8a-80a0963f2638)
+
+```csharp
+[Benchmark]
+public async Task<byte[]> MemoryStreamCopyToToArray()
+{
+    using var fs = new FileStream(filePath, FileMode.Open);
+    var ms = new MemoryStream();
+    await fs.CopyToAsync(ms);
+
+    return ms.ToArray();
+}
+
+[Benchmark]
+public async Task<byte[]> Utf8StreamReaderReadToEndAsync()
+{
+    using var fs = new FileStream(filePath, FileMode.Open);
+    using var sr = new Cysharp.IO.Utf8StreamReader(fs);
+    return await sr.ReadToEndAsync(disableBomCheck: false); // hack for disable optimize(for benchmark fairness)
+}
+```
+
 ## Reset
 
 `Utf8StreamReader` is a class that supports reuse. By calling `Reset()`, the Stream and internal state are released. Using `Reset(Stream)`, it can be reused with a new `Stream`.
