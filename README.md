@@ -60,10 +60,6 @@ The basic API involves `using var streamReader = new Utf8StreamReader(stream);` 
 using Cysharp.IO; // namespace of Utf8StreamReader
 
 public async Task Sample1(Stream stream)
-
-
-![image](https://github.com/Cysharp/Utf8StreamReader/assets/46207/df82bb8c-00bf-4159-b21d-83706691ccd3)
-
 {
     using var reader = new Utf8StreamReader(stream);
 
