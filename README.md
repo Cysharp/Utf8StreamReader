@@ -3,7 +3,7 @@
 [![GitHub Actions](https://github.com/Cysharp/Utf8StreamReader/workflows/Build-Debug/badge.svg)](https://github.com/Cysharp/Utf8StreamReader/actions) [![Releases](https://img.shields.io/github/release/Cysharp/Utf8StreamReader.svg)](https://github.com/Cysharp/Utf8StreamReader/releases)
 [![NuGet package](https://img.shields.io/nuget/v/Utf8StreamReader.svg)](https://nuget.org/packages/Utf8StreamReader)
 
-Utf8 based StreamReader for high performance text processing.
+Utf8 based StreamReader for high performance text processing. In addition to UTF-8 based binary processing, it can also be used as a a high-performance replacement for StreamReader and as a helper for fast binary reading.
 
 Avoiding unnecessary string allocation is a fundamental aspect of recent .NET performance improvements. Given that most file and network data is in UTF8, features like [JsonSerializer](https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer?view=net-8.0) and [IUtf8SpanParsable](https://learn.microsoft.com/en-us/dotnet/api/system.iutf8spanparsable-1?view=net-8.0), which operate on UTF8-based data, have been added. More recently, methods like [.NET8 MemoryExtensions.Split](https://learn.microsoft.com/en-us/dotnet/api/system.memoryextensions.split?view=net-8.0), which avoids allocations, have also been introduced.
 
