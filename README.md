@@ -250,6 +250,7 @@ SegmentedArrayBufferWriter borrows the idea (which I proposed) from [the perform
 struct InlineArray19<T>
 {
     public const int InitialSize = 8192;
+
     T[] array00;  // 8192
     T[] array01;  // 16384
     T[] array02;  // 32768
