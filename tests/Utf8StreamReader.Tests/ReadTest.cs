@@ -28,7 +28,7 @@ public class ReadTest
                 GetBytes("zklmno\r\n\n"));
 
             var sr = new Utf8StreamReader(ms);
-            var result = await sr.ReadToEndAsync(ignoreBomCheck: false);
+            var result = await sr.ReadToEndAsync(disableBomCheck: false);
 
             var expected = "Zabc\ndef\r\nghij\nzklmno\r\n\n";
             var actual = ToString(result);
