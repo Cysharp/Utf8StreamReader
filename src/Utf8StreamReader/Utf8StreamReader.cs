@@ -400,15 +400,25 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     public ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken = default)
     {
-        if (BaseStream is FileStream fs && fs.CanSeek)
-        {
-            return ReadToEndAsync(fs.Length, cancellationToken);
-        }
-
-        return ReadToEndAsync(-1, cancellationToken);
+        return ReadToEndAsync(true, cancellationToken);
     }
 
-    public async ValueTask<byte[]> ReadToEndAsync(long resultSizeHint, CancellationToken cancellationToken = default)
+    public ValueTask<byte[]> ReadToEndAsync(bool disableBomCheck, CancellationToken cancellationToken = default)
+    {
+        if (disableBomCheck && BaseStream is FileStream fs && fs.CanSeek)
+        {
+            return ReadToEndAsyncCore(fs.Length, true, cancellationToken);
+        }
+
+        return ReadToEndAsyncCore(-1, disableBomCheck, cancellationToken);
+    }
+
+    public ValueTask<byte[]> ReadToEndAsync(long resultSizeHint, CancellationToken cancellationToken = default)
+    {
+        return ReadToEndAsyncCore(resultSizeHint, true, cancellationToken);
+    }
+
+    async ValueTask<byte[]> ReadToEndAsyncCore(long resultSizeHint, bool disableBomCheck = true, CancellationToken cancellationToken = default)
     {
         if (endOfStream)
         {
@@ -470,7 +480,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             positionBegin = positionEnd = 0;
             lastNewLinePosition = -2;
 
-            if (checkPreamble && writer.WrittenCount == 0)
+            if (!disableBomCheck && checkPreamble && writer.WrittenCount == 0)
             {
                 var memory = writer.GetMemory();
                 var readCount = 0;

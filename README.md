@@ -341,12 +341,18 @@ while (await reader.LoadIntoBufferAsync())
 }
 ```
 
-When using `ReadToEndAsync`, you can obtain a `byte[]` using Utf8StreamReader's efficient binary reading/concatenation (`SegmentedArrayBufferWriter<byte>, InlineArray19<byte>`). However, it's important to note that by default, it checks for and trims the BOM (Byte Order Mark). If you expect a complete binary read, set `SkipBom = false` to disable the BOM check.
+When using `ReadToEndAsync`, you can obtain a `byte[]` using Utf8StreamReader's efficient binary reading/concatenation (`SegmentedArrayBufferWriter<byte>, InlineArray19<byte>`). 
 
 ```csharp
-using var reader = new Utf8StreamReader(stream) { SkipBom = false };
+using var reader = new Utf8StreamReader(stream);
 byte[] bytes = await reader.ReadToEndAsync();
 ```
+
+`ReadToEndAsync()` has two optional overloads, `(bool disableBomCheck)` and `(long resultSizeHint)`. 
+
+If `disableBomCheck` is true, it disables the BOM check/trim and always performs a complete binary-matching read. The default for `ReadToEndAsync` is true, which always expects a binary-matching read. If false, it follows Utf8StreamReader.SkipBom.
+
+`resultSizeHint` allows for reducing the copy cost by directly generating `new byte[resultSizeHint]` when the final binary size is known and reading directly into that buffer. When reading a file, i.e., when the `Stream` is a `FileStream` and seekable, `FileStream.Length` is used as the resultSizeHint as an optimization.
 
 ## Reset
 
