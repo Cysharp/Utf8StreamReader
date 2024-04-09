@@ -34,10 +34,13 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     public bool SkipBom
     {
+        get => skipBom;
         init => skipBom = checkPreamble = value;
     }
 
     public bool ConfigureAwait { get; init; } = false;
+
+    public bool SyncRead { get; init; } = false;
 
     public Utf8StreamReader(Stream stream)
         : this(stream, DefaultBufferSize, false)
@@ -74,9 +77,15 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     static FileStream OpenPath(string path, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
     {
+#if NETSTANDARD
+        var useSequentialScan = FileOptions.SequentialScan;
+#else
+        // SequentialScan is a perf hint that requires extra sys-call on non-Windows OSes.
+        var useSequentialScan = OperatingSystem.IsWindows() ? FileOptions.SequentialScan : FileOptions.None;
+#endif
         var fileOptions = (fileOpenMode == FileOpenMode.Scalability)
-            ? (FileOptions.SequentialScan | FileOptions.Asynchronous)
-            : FileOptions.SequentialScan;
+            ? (FileOptions.Asynchronous | useSequentialScan)
+            : useSequentialScan;
         return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, options: fileOptions);
     }
 
@@ -196,7 +205,10 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         // not reaches full, repeatedly read
         if (positionEnd != inputBuffer.Length)
         {
-            var read = await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+            var read = SyncRead
+                ? stream.Read(inputBuffer.AsSpan(positionEnd))
+                : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+
             positionEnd += read;
             if (read == 0)
             {
@@ -215,7 +227,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 // first Read, require to check UTF8 BOM
                 if (checkPreamble)
                 {
-                    if (read < 2) goto LOAD_INTO_BUFFER;
+                    if (positionEnd < 3) goto LOAD_INTO_BUFFER;
                     if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
                     {
                         positionBegin = 3;
@@ -259,6 +271,257 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
         }
     }
 
+#if !NETSTANDARD
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+#endif
+    public async ValueTask LoadIntoBufferAtLeastAsync(int minimumBytes, CancellationToken cancellationToken = default)
+    {
+        var loaded = positionEnd - positionBegin;
+        if (minimumBytes < loaded)
+        {
+            return;
+        }
+        if (endOfStream)
+        {
+            throw new EndOfStreamException();
+        }
+
+        if (positionEnd != 0 && positionBegin == positionEnd)
+        {
+            // can reset buffer position
+            loaded = positionBegin = positionEnd = 0;
+            lastNewLinePosition = -1;
+        }
+
+        var remains = minimumBytes - loaded;
+
+        if (inputBuffer.Length - positionEnd < remains)
+        {
+            // needs resize before load loop
+            var newBuffer = ArrayPool<byte>.Shared.Rent(Math.Min(GetNewSize(inputBuffer.Length), positionEnd + remains));
+            inputBuffer.AsSpan().CopyTo(newBuffer);
+            ArrayPool<byte>.Shared.Return(inputBuffer);
+            inputBuffer = newBuffer;
+        }
+
+    LOAD_INTO_BUFFER:
+        var read = SyncRead
+            ? stream.Read(inputBuffer.AsSpan(positionEnd))
+            : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+        positionEnd += read;
+        if (read == 0)
+        {
+            throw new EndOfStreamException();
+        }
+        else
+        {
+            // first Read, require to check UTF8 BOM
+            if (checkPreamble)
+            {
+                if (positionEnd < 3) goto LOAD_INTO_BUFFER;
+                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    positionBegin = 3;
+                    remains += 3; // read 3 bytes should not contains
+                }
+                checkPreamble = false;
+            }
+
+            remains -= read;
+            if (remains < 0)
+            {
+                return;
+            }
+
+            goto LOAD_INTO_BUFFER;
+        }
+    }
+
+    public async IAsyncEnumerable<ReadOnlyMemory<byte>> ReadToEndChunksAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (endOfStream)
+        {
+            var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd;
+            if (result.Length != 0)
+            {
+                yield return result;
+            }
+            yield break;
+        }
+
+        if (positionEnd != 0 && positionBegin != positionEnd)
+        {
+            yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+        }
+
+        positionBegin = positionEnd = 0;
+        lastNewLinePosition = -2;
+
+    LOAD_INTO_BUFFER:
+        var read = SyncRead
+            ? stream.Read(inputBuffer.AsSpan(positionEnd))
+            : await stream.ReadAsync(inputBuffer.AsMemory(positionEnd), cancellationToken).ConfigureAwait(ConfigureAwait);
+
+        positionEnd += read;
+        if (read == 0)
+        {
+            endOfStream = true;
+            var result = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd;
+            if (result.Length != 0)
+            {
+                yield return result;
+            }
+            yield break;
+        }
+        else
+        {
+            // first Read, require to check UTF8 BOM
+            if (checkPreamble)
+            {
+                if (positionEnd < 3) goto LOAD_INTO_BUFFER;
+                if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    positionBegin = 3;
+                }
+                checkPreamble = false;
+                if (positionEnd - positionBegin == 0)
+                {
+                    goto LOAD_INTO_BUFFER;
+                }
+            }
+
+            yield return inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd = 0;
+            goto LOAD_INTO_BUFFER;
+        }
+    }
+
+    public ValueTask<byte[]> ReadToEndAsync(CancellationToken cancellationToken = default)
+    {
+        if (BaseStream is FileStream fs && fs.CanSeek)
+        {
+            return ReadToEndAsync(fs.Length, cancellationToken);
+        }
+
+        return ReadToEndAsync(-1, cancellationToken);
+    }
+
+    public async ValueTask<byte[]> ReadToEndAsync(long resultSizeHint, CancellationToken cancellationToken = default)
+    {
+        if (endOfStream)
+        {
+            var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+            return (slice.Length != 0)
+                ? slice.ToArray()
+                : [];
+        }
+
+        if (resultSizeHint != -1)
+        {
+            if (resultSizeHint == 0)
+            {
+                return [];
+            }
+
+            var result = new byte[resultSizeHint];
+            var memory = result.AsMemory();
+
+            if (positionEnd != 0 && positionBegin != positionEnd)
+            {
+                var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+                slice.CopyTo(memory);
+                memory = memory.Slice(slice.Length);
+            }
+
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+
+            while (true)
+            {
+                var read = SyncRead
+                   ? stream.Read(memory.Span)
+                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+
+                if (read == 0)
+                {
+                    break;
+                }
+                else
+                {
+                    memory = memory.Slice(read);
+                }
+            }
+
+            return result;
+        }
+        else
+        {
+            using var writer = new SegmentedArrayBufferWriter<byte>();
+            if (positionEnd != 0 && positionBegin != positionEnd)
+            {
+                var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
+                writer.Write(slice.Span);
+            }
+
+            positionBegin = positionEnd = 0;
+            lastNewLinePosition = -2;
+
+            if (checkPreamble && writer.WrittenCount == 0)
+            {
+                var memory = writer.GetMemory();
+                var readCount = 0;
+            READ_FOR_BOM:
+                var read = SyncRead
+                   ? stream.Read(memory.Span)
+                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+                readCount += read;
+
+                if (readCount < 3)
+                {
+                    memory = memory.Slice(read);
+                    goto READ_FOR_BOM;
+                }
+
+                memory = writer.GetMemory();
+                if (memory.Span.Slice(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    // copy
+                    memory.Span.Slice(3).CopyTo(memory.Span);
+                    writer.Advance(readCount - 3);
+                }
+                else
+                {
+                    writer.Advance(readCount);
+                }
+
+                checkPreamble = false;
+            }
+
+            while (true)
+            {
+                var read = SyncRead
+                   ? stream.Read(writer.GetMemory().Span)
+                   : await stream.ReadAsync(writer.GetMemory(), cancellationToken).ConfigureAwait(ConfigureAwait);
+
+                if (read == 0)
+                {
+                    break;
+                }
+                else
+                {
+                    writer.Advance(read);
+                }
+            }
+
+            endOfStream = true;
+            return writer.ToArrayAndDispose();
+        }
+    }
+
     public ValueTask<ReadOnlyMemory<byte>?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
         if (TryReadLine(out var line))
@@ -266,13 +529,16 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             return new ValueTask<ReadOnlyMemory<byte>?>(line);
         }
 
-        return Core(this, cancellationToken);
+        return Core(cancellationToken);
 
-        static async ValueTask<ReadOnlyMemory<byte>?> Core(Utf8StreamReader self, CancellationToken cancellationToken)
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<ReadOnlyMemory<byte>?> Core(CancellationToken cancellationToken)
         {
-            if (await self.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(self.ConfigureAwait))
+            if (await LoadIntoBufferAsync(cancellationToken).ConfigureAwait(ConfigureAwait))
             {
-                if (self.TryReadLine(out var line))
+                if (TryReadLine(out var line))
                 {
                     return line;
                 }
@@ -289,6 +555,115 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             {
                 yield return line;
             }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryPeek(out byte data)
+    {
+        ThrowIfDisposed();
+
+        if (positionEnd - positionBegin > 0)
+        {
+            data = inputBuffer[positionBegin];
+            return true;
+        }
+
+        data = default;
+        return false;
+    }
+
+    public ValueTask<byte> PeekAsync(CancellationToken cancellationToken = default)
+    {
+        if (TryPeek(out var data))
+        {
+            return new ValueTask<byte>(data);
+        }
+
+        return Core(cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<byte> Core(CancellationToken cancellationToken)
+        {
+            await LoadIntoBufferAtLeastAsync(1, cancellationToken);
+            return inputBuffer[positionBegin];
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool TryRead(out byte data)
+    {
+        ThrowIfDisposed();
+
+        if (TryPeek(out data))
+        {
+            positionBegin += 1;
+            lastNewLinePosition = lastExaminedPosition = -1;
+            return true;
+        }
+
+        data = default;
+        return false;
+    }
+
+    public ValueTask<byte> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        if (TryRead(out var data))
+        {
+            return new ValueTask<byte>(data);
+        }
+
+        return Core(cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<byte> Core(CancellationToken cancellationToken)
+        {
+            await LoadIntoBufferAtLeastAsync(1, cancellationToken);
+            TryRead(out var data);
+            return data;
+        }
+    }
+
+    public bool TryReadBlock(int count, out ReadOnlyMemory<byte> block)
+    {
+        ThrowIfDisposed();
+
+        var loaded = positionEnd - positionBegin;
+        if (count < loaded)
+        {
+            block = inputBuffer.AsMemory(positionBegin, count);
+            positionBegin += count;
+            lastNewLinePosition = lastExaminedPosition = -1;
+            return true;
+        }
+
+        block = default;
+        return false;
+    }
+
+    public ValueTask<ReadOnlyMemory<byte>> ReadBlockAsync(int count, CancellationToken cancellationToken = default)
+    {
+        if (TryReadBlock(count, out var block))
+        {
+            return new ValueTask<ReadOnlyMemory<byte>>(block);
+        }
+
+        return Core(count, cancellationToken);
+
+#if !NETSTANDARD
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+#endif
+        async ValueTask<ReadOnlyMemory<byte>> Core(int count, CancellationToken cancellationToken)
+        {
+            await LoadIntoBufferAtLeastAsync(count, cancellationToken);
+            TryReadBlock(count, out var block);
+            return block;
         }
     }
 
