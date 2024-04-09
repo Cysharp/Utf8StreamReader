@@ -77,9 +77,15 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
     static FileStream OpenPath(string path, FileOpenMode fileOpenMode = FileOpenMode.Throughput)
     {
+#if NETSTANDARD
+        var useSequentialScan = FileOptions.SequentialScan;
+#else
+        // SequentialScan is a perf hint that requires extra sys-call on non-Windows OSes.
+        var useSequentialScan = OperatingSystem.IsWindows() ? FileOptions.SequentialScan : FileOptions.None;
+#endif
         var fileOptions = (fileOpenMode == FileOpenMode.Scalability)
-            ? (FileOptions.SequentialScan | FileOptions.Asynchronous)
-            : FileOptions.SequentialScan;
+            ? (FileOptions.Asynchronous | useSequentialScan)
+            : useSequentialScan;
         return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, options: fileOptions);
     }
 
@@ -221,7 +227,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 // first Read, require to check UTF8 BOM
                 if (checkPreamble)
                 {
-                    if (read < 2) goto LOAD_INTO_BUFFER;
+                    if (positionEnd < 3) goto LOAD_INTO_BUFFER;
                     if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
                     {
                         positionBegin = 3;
@@ -312,7 +318,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             // first Read, require to check UTF8 BOM
             if (checkPreamble)
             {
-                if (read < 2) goto LOAD_INTO_BUFFER;
+                if (positionEnd < 3) goto LOAD_INTO_BUFFER;
                 if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
                 {
                     positionBegin = 3;
@@ -374,7 +380,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             // first Read, require to check UTF8 BOM
             if (checkPreamble)
             {
-                if (read < 2) goto LOAD_INTO_BUFFER;
+                if (positionEnd < 3) goto LOAD_INTO_BUFFER;
                 if (inputBuffer.AsSpan(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
                 {
                     positionBegin = 3;
@@ -464,6 +470,37 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             positionBegin = positionEnd = 0;
             lastNewLinePosition = -2;
 
+            if (checkPreamble && writer.WrittenCount == 0)
+            {
+                var memory = writer.GetMemory();
+                var readCount = 0;
+            READ_FOR_BOM:
+                var read = SyncRead
+                   ? stream.Read(memory.Span)
+                   : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+                readCount += read;
+
+                if (readCount < 3)
+                {
+                    memory = memory.Slice(read);
+                    goto READ_FOR_BOM;
+                }
+
+                memory = writer.GetMemory();
+                if (memory.Span.Slice(0, 3).SequenceEqual(Encoding.UTF8.Preamble))
+                {
+                    // copy
+                    memory.Span.Slice(3).CopyTo(memory.Span);
+                    writer.Advance(readCount - 3);
+                }
+                else
+                {
+                    writer.Advance(readCount);
+                }
+
+                checkPreamble = false;
+            }
+
             while (true)
             {
                 var read = SyncRead
@@ -476,7 +513,6 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 }
                 else
                 {
-                    // NOTE: ReadToEnd does not check, trim BOM.
                     writer.Advance(read);
                 }
             }
@@ -604,7 +640,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
             block = inputBuffer.AsMemory(positionBegin, count);
             positionBegin += count;
             lastNewLinePosition = lastExaminedPosition = -1;
-            return false;
+            return true;
         }
 
         block = default;

@@ -1,6 +1,7 @@
 ﻿using Cysharp.IO;
 using Microsoft.Win32.SafeHandles;
 using System.Buffers;
+using System.Buffers.Text;
 using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.InteropServices;
@@ -13,13 +14,42 @@ using System.Text.Unicode;
 
 
 
+var aa = Encoding.UTF8.GetBytes("$5\r\nhello\r\n");
+var stream = new MemoryStream(aa);
 
-var path = "file1.txt";
+using var reader = new Utf8StreamReader(stream) { SkipBom = false };
+byte[] bytes = await reader.ReadToEndAsync();
 
 
-var fs = new FileStream(path, FileMode.Open,FileAccess.Read, FileShare.Read, 0, false);
-var buf = new byte[1024];
-await fs.ReadAsync(buf);
+//while (await reader.LoadIntoBufferAsync())
+//{
+//    while (reader.TryReadLine(out var line))
+//    {
+//        switch (line.Span[0])
+//        {
+//            case (byte)'$':
+//                Utf8Parser.TryParse(line.Span.Slice(1), out int size, out _);
+//                if (!reader.TryReadBlock(size + 2, out var block)) // +2 is \r\n
+//                {
+//                    // ReadBlockAsync is TryReadBlock + LoadIntoBufferAtLeastAsync
+//                    block = await reader.ReadBlockAsync(size + 2);
+//                }
+//                yield return block.Slice(0, size);
+//                break;
+//            // and others('+', '-', ':', '*')
+//            default:
+//                break;
+//        }
+//    }
+//}
+
+
+//var path = "file1.txt";
+
+
+//var fs = new FileStream(path, FileMode.Open,FileAccess.Read, FileShare.Read, 0, false);
+//var buf = new byte[1024];
+//await fs.ReadAsync(buf);
 
 //using var reader = new Utf8StreamReader(path).AsTextReader();
 

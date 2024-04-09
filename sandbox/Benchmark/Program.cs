@@ -6,11 +6,11 @@ using System.Runtime.CompilerServices;
 global::System.Console.WriteLine("DEBUG");
 
 //var benchmark = new BytesReadToEnd();
-var benchmark = new StringBenchmark();
+var benchmark = new ReadToEndString();
 benchmark.GlobalSetup();
 
 //var s1 = await benchmark.FileReadAllBytesAsync();
-var s2 = await benchmark.Utf8StreamReaderReadToEndAsync();
+var s2 = await benchmark.Utf8TextReaderReadToEndAsync();
 
 //Console.WriteLine(s1.SequenceEqual(s2));
 

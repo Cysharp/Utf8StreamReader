@@ -90,23 +90,32 @@ public sealed class Utf8TextReader : IDisposable, IAsyncDisposable
             }
         }
     }
-
+    
+    // Utf8TextReader is a helper class for ReadOnlyMemory<char> and string generation that internally holds Utf8StreamReader
     public async ValueTask<string> ReadToEndAsync(CancellationToken cancellationToken = default)
     {
+        // Using a method similar to .NET 9 LINQ to Objects's ToArray improvement, returns a structure optimized for gap-free sequential expansion
+        // StreamReader.ReadToEnd copies the buffer to a StringBuilder, but this implementation holds char[] chunks(char[][]) without copying.
         using var writer = new SegmentedArrayBufferWriter<char>();
         var decoder = Encoding.UTF8.GetDecoder();
 
+        // Utf8StreamReader.ReadToEndChunksAsync returns the internal buffer ReadOnlyMemory<byte> as an asynchronous sequence upon each read completion
         await foreach (var chunk in reader.ReadToEndChunksAsync(cancellationToken).ConfigureAwait(reader.ConfigureAwait))
         {
             var input = chunk;
             while (input.Length != 0)
             {
+                // The Decoder directly writes from the read buffer to the char[] buffer
                 decoder.Convert(input.Span, writer.GetMemory().Span, flush: false, out var bytesUsed, out var charsUsed, out var completed);
                 input = input.Slice(bytesUsed);
                 writer.Advance(charsUsed);
             }
         }
 
+        decoder.Convert([], writer.GetMemory().Span, flush: true, out _, out var finalCharsUsed, out _);
+        writer.Advance(finalCharsUsed);
+
+        // Directly generate a string from the char[][] buffer using String.Create
         return string.Create(writer.WrittenCount, writer, static (stringSpan, writer) =>
         {
             foreach (var item in writer.GetSegmentsAndDispose())

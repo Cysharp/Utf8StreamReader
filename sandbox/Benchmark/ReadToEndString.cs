@@ -7,7 +7,7 @@ using System.Text.Unicode;
 namespace Benchmark;
 
 [SimpleJob, MemoryDiagnoser]
-public class StringBenchmark
+public class ReadToEndString
 {
     const int C = 1000000;
 
@@ -49,7 +49,7 @@ public class StringBenchmark
     }
 
     [Benchmark]
-    public async Task<string> Utf8StreamReaderReadToEndAsync()
+    public async Task<string> Utf8TextReaderReadToEndAsync()
     {
         using var sr = new Cysharp.IO.Utf8StreamReader(filePath).AsTextReader();
         return await sr.ReadToEndAsync();
