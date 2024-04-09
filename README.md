@@ -122,7 +122,7 @@ You can convert it to a `Utf8TextReader` that extracts `ReadOnlyMemory<char>` or
 
 ![image](https://github.com/Cysharp/Utf8StreamReader/assets/46207/d77af0fd-76af-46ce-8261-0863e4ab7109)
 
-After converting with `AsTextReader()`, all the same methods (`TryReadLine`, `ReadLineAsync`, `LoadIntoBufferAsync`, `ReadAllLinexAsync`) can be used.
+After converting with `AsTextReader()`, all the same methods (`TryReadLine`, `ReadLineAsync`, `LoadIntoBufferAsync`, `ReadAllLinesAsync`) can be used.
 
 ```csharp
 using var sr = new Cysharp.IO.Utf8StreamReader(ms).AsTextReader();
