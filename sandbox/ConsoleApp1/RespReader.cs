@@ -13,7 +13,7 @@ public enum RespType : byte
     Arrays = (byte)'*'
 }
 
-public abstract class RespReader : IDisposable
+public class RespReader : IDisposable
 {
     Utf8StreamReader reader;
 
