@@ -439,12 +439,14 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
 
             var result = new byte[resultSizeHint];
             var memory = result.AsMemory();
+            var totalRead = 0;
 
             if (positionEnd != 0 && positionBegin != positionEnd)
             {
                 var slice = inputBuffer.AsMemory(positionBegin, positionEnd - positionBegin);
                 slice.CopyTo(memory);
                 memory = memory.Slice(slice.Length);
+                totalRead = slice.Length;
             }
 
             positionBegin = positionEnd = 0;
@@ -455,6 +457,7 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 var read = SyncRead
                    ? stream.Read(memory.Span)
                    : await stream.ReadAsync(memory, cancellationToken).ConfigureAwait(ConfigureAwait);
+                totalRead += read;
 
                 if (read == 0)
                 {
@@ -463,10 +466,33 @@ public sealed class Utf8StreamReader : IAsyncDisposable, IDisposable
                 else
                 {
                     memory = memory.Slice(read);
+                    if (memory.Length == 0)
+                    {
+                        // try to check stream is finished.
+                        var finalRead = SyncRead
+                           ? stream.Read(result.AsSpan(0, 1))
+                           : await stream.ReadAsync(result.AsMemory(0, 1), cancellationToken).ConfigureAwait(ConfigureAwait);
+
+                        if (finalRead == 0)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException("resultSizeHint is smaller than data size.");
+                        }
+                    }
                 }
             }
 
-            return result;
+            if (result.Length == totalRead)
+            {
+                return result;
+            }
+            else
+            {
+                return result.AsSpan(0, totalRead).ToArray();
+            }
         }
         else
         {
