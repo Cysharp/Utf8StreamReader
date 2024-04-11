@@ -294,7 +294,7 @@ With these optimizations for both reading and writing, we achieved several times
 
 ## Binary Read
 
-`TryPeek`, `PeekAsync`, `TryRead`, `ReadAsync`, `TryReadBlock`, and `ReadBlockAsync` enable reading as binary, irrespective of newline codes. For example, Redis's protocol, RESP, is a text protocol and typically newline-delimited, but after `$N`, it requires reading N bytes (BulkString). For instance, `$5\r\nhello\r\n` means reading 5 bytes.
+`TryPeek`, `PeekAsync`, `TryRead`, `ReadAsync`, `TryReadBlock`, and `ReadBlockAsync` enable reading as binary, irrespective of newline codes. For example, [Redis's protocol, RESP](https://redis.io/docs/latest/develop/reference/protocol-spec/), is a text protocol and typically newline-delimited, but after `$N`, it requires reading N bytes (BulkString). For instance, `$5\r\nhello\r\n` means reading 5 bytes.
 
 Here's an example of how it can be parsed:
 
