@@ -310,7 +310,7 @@ if (line.Value.Span[0] == (byte)'$')
 }
 ```
 
-A sample that parses all RESP code is available in [RespReader.cs](https://github.com/Cysharp/Utf8StreamReader/blob/fb8a02e1/sandbox/ConsoleApp1/RespReader.cs).
+A sample that parses all RESP code is available in [RespReader.cs](https://github.com/Cysharp/Utf8StreamReader/blob/e400444/sandbox/ConsoleApp1/RespReader.cs).
 
 Additionally, when using `LoadIntoBufferAsync` and `LoadIntoBufferAtLeastAsync` to include data in the buffer, using `Try***` allows for more efficient execution.
 
