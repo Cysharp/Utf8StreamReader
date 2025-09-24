@@ -1,7 +1,11 @@
 <Project>
 
   <PropertyGroup>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)opensource.snk</AssemblyOriginatorKeyFile>
+
     <!-- NuGet Packaging -->
+    <IsPackable>false</IsPackable>
     <PackageVersion>$(Version)</PackageVersion>
     <Company>Cysharp</Company>
     <Authors>Cysharp</Authors>
@@ -12,13 +16,11 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageIcon>Icon.png</PackageIcon>
-    <SignAssembly>true</SignAssembly>
-    <AssemblyOriginatorKeyFile>../../opensource.snk</AssemblyOriginatorKeyFile>
-    <!-- For BenchmarkDotNet generated project-->
-    <AssemblyOriginatorKeyFile Condition="EXISTS('./../../../../../../opensource.snk')">../../../../../../opensource.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)Icon.png" Pack="true" PackagePath="\" />
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)LICENSE" />
   </ItemGroup>
 </Project>
